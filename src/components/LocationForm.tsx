@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Box,
     TextField,
@@ -17,6 +17,8 @@ import {
     InputLabel,
     Dialog,
     SelectChangeEvent,
+    Alert,
+    AlertTitle,
 } from '@mui/material';
 import {
     Language as WebsiteIcon,
@@ -25,9 +27,13 @@ import {
     Place as PlaceIcon,
     LocalOffer as TagIcon,
     Add as AddIcon,
+    Map as MapIcon,
 } from '@mui/icons-material';
 import { Location } from '../types/Location';
 import { LocationService } from '../services/LocationService';
+import { Autocomplete } from '@mui/material';
+import { useLoadScript } from '@react-google-maps/api';
+import Logger from '../utils/logger';
 
 interface LocationFormProps {
     initialData: Location | null;
@@ -35,7 +41,14 @@ interface LocationFormProps {
     onCancel: () => void;
 }
 
+const libraries = ['places'];
+
 export default function LocationForm({ initialData, onSave, onCancel }: LocationFormProps) {
+    const { isLoaded, loadError } = useLoadScript({
+        googleMapsApiKey: import.meta.env.VITE_GOOGLE_API_KEY || '',
+        libraries: libraries as any,
+    });
+
     const [formData, setFormData] = React.useState<Partial<Location>>(
         initialData || {
             Name: '',
@@ -59,11 +72,31 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
     const [categories, setCategories] = useState<string[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategory, setNewCategory] = useState('');
+    const [addressInput, setAddressInput] = useState('');
+    const [addressOptions, setAddressOptions] = useState<google.maps.places.AutocompletePrediction[]>([]);
+    const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
+    const placesService = useRef<google.maps.places.PlacesService | null>(null);
+    const [addressVerified, setAddressVerified] = useState(false);
+    const [apiError, setApiError] = useState<string | null>(null);
 
     // Load categories when component mounts
     useEffect(() => {
         setCategories(LocationService.getCategories());
     }, []);
+
+    useEffect(() => {
+        if (isLoaded && !autocompleteService.current) {
+            console.log('Google Maps script loaded, initializing AutocompleteService');
+            autocompleteService.current = new google.maps.places.AutocompleteService();
+        }
+    }, [isLoaded]);
+
+    useEffect(() => {
+        if (loadError) {
+            Logger.error('Failed to load Google Maps script', loadError);
+            setApiError('Failed to load Google Maps services. Please check your API key and enabled services.');
+        }
+    }, [loadError]);
 
     const handleTextChange = (field: keyof Location) => (
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -81,6 +114,98 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
             ...formData,
             [field]: event.target.value,
         });
+    };
+
+    const handleAddressChange = async (value: string) => {
+        setAddressInput(value);
+        setApiError(null);
+        
+        if (!isLoaded) {
+            Logger.warn('Attempted to use Places API before it was loaded');
+            setApiError('Google Maps services are still loading...');
+            return;
+        }
+        
+        if (value && autocompleteService.current) {
+            try {
+                Logger.info(`Fetching address predictions for: ${value}`);
+                const results = await autocompleteService.current.getPlacePredictions({
+                    input: value,
+                });
+                setAddressOptions(results?.predictions || []);
+            } catch (error) {
+                Logger.error('Error fetching address predictions', error);
+                if (error instanceof Error) {
+                    if (error.message.includes('REQUEST_DENIED')) {
+                        setApiError('Places API is not enabled. Please enable it in the Google Cloud Console.');
+                    } else if (error.message.includes('INVALID_REQUEST')) {
+                        setApiError('Invalid request. Please check your input.');
+                    } else {
+                        setApiError(`Failed to get address suggestions: ${error.message}`);
+                    }
+                }
+                setAddressOptions([]);
+            }
+        } else {
+            setAddressOptions([]);
+        }
+    };
+
+    const handleAddressSelect = async (prediction: google.maps.places.AutocompletePrediction | null) => {
+        setApiError(null); // Clear previous errors
+        if (!prediction) {
+            setAddressVerified(false);
+            return;
+        }
+
+        if (!isLoaded) {
+            setApiError('Google Maps services are still loading...');
+            return;
+        }
+
+        if (!placesService.current && isLoaded) {
+            const tempNode = document.createElement('div');
+            placesService.current = new google.maps.places.PlacesService(tempNode);
+        }
+
+        if (placesService.current) {
+            try {
+                placesService.current.getDetails(
+                    {
+                        placeId: prediction.place_id,
+                        fields: ['formatted_address', 'geometry'],
+                    },
+                    (place, status) => {
+                        if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
+                            const lat = place.geometry.location.lat();
+                            const lng = place.geometry.location.lng();
+                            setFormData({
+                                ...formData,
+                                Address: place.formatted_address || prediction.description,
+                                Latitude: lat,
+                                Longitude: lng,
+                            });
+                            setAddressVerified(true);
+                        } else {
+                            setAddressVerified(false);
+                            if (status === google.maps.places.PlacesServiceStatus.REQUEST_DENIED) {
+                                setApiError('Places API is not enabled. Please enable it in the Google Cloud Console.');
+                            } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+                                setApiError('No details found for this location.');
+                            } else {
+                                setApiError(`Failed to get place details: ${status}`);
+                            }
+                        }
+                    }
+                );
+            } catch (error) {
+                console.error('Error fetching place details:', error);
+                if (error instanceof Error) {
+                    setApiError(`Failed to get place details: ${error.message}`);
+                }
+                setAddressVerified(false);
+            }
+        }
     };
 
     const validateForm = (): boolean => {
@@ -151,7 +276,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
         setIsAddingCategory(false);
     };
 
-    const openInMaps = () => {
+    const verifyLocation = () => {
         if (formData.Latitude && formData.Longitude) {
             window.open(
                 `https://www.google.com/maps?q=${formData.Latitude},${formData.Longitude}`,
@@ -275,56 +400,121 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                     <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>
                         Location Details
                     </Typography>
-                    <Grid container spacing={2}>
+                    <Grid container spacing={0}>
+                        {apiError && (
+                            <Grid item xs={12}>
+                                <Alert 
+                                    severity="error" 
+                                    sx={{ mb: 2 }}
+                                    action={
+                                        <Button
+                                            color="inherit"
+                                            size="small"
+                                            href="https://console.cloud.google.com/apis/library/places-backend.googleapis.com"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            Enable API
+                                        </Button>
+                                    }
+                                >
+                                    <AlertTitle>Error</AlertTitle>
+                                    {apiError}
+                                </Alert>
+                            </Grid>
+                        )}
+                        {!isLoaded && (
+                            <Grid item xs={12}>
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                    Loading Google Maps services...
+                                </Alert>
+                            </Grid>
+                        )}
                         <Grid item xs={12}>
-                            <TextField
-                                required
-                                fullWidth
-                                label="Address"
+                            <Autocomplete
+                                freeSolo
+                                options={addressOptions}
+                                getOptionLabel={(option) => 
+                                    typeof option === 'string' ? option : option.description
+                                }
                                 value={formData.Address}
-                                onChange={handleTextChange('Address')}
-                                error={!!formErrors.Address}
-                                helperText={formErrors.Address}
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PlaceIcon />
-                                        </InputAdornment>
-                                    ),
+                                inputValue={addressInput}
+                                onInputChange={(_, value) => {
+                                    handleAddressChange(value);
+                                    setAddressVerified(false);
                                 }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <TextField
-                                required
-                                fullWidth
-                                type="number"
-                                label="Latitude"
-                                value={formData.Latitude}
-                                onChange={handleTextChange('Latitude')}
-                                inputProps={{ step: 'any' }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <TextField
-                                required
-                                fullWidth
-                                type="number"
-                                label="Longitude"
-                                value={formData.Longitude}
-                                onChange={handleTextChange('Longitude')}
-                                inputProps={{ step: 'any' }}
-                                InputProps={{
-                                    endAdornment: formData.Latitude && formData.Longitude && (
-                                        <InputAdornment position="end">
-                                            <IconButton onClick={openInMaps} size="small">
-                                                <PlaceIcon />
-                                            </IconButton>
-                                        </InputAdornment>
-                                    ),
+                                onChange={(_, value) => {
+                                    if (typeof value === 'string') {
+                                        setFormData({ ...formData, Address: value });
+                                        setAddressVerified(false);
+                                    } else {
+                                        handleAddressSelect(value);
+                                    }
                                 }}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        required
+                                        fullWidth
+                                        label="Address"
+                                        error={!!formErrors.Address || !!apiError}
+                                        helperText={formErrors.Address}
+                                        InputProps={{
+                                            ...params.InputProps,
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <PlaceIcon color={addressVerified ? "success" : apiError ? "error" : "inherit"} />
+                                                </InputAdornment>
+                                            ),
+                                        }}
+                                    />
+                                )}
                             />
                         </Grid>
+                        {addressVerified && (
+                            <Grid item xs={12}>
+                                <Box 
+                                    sx={{ 
+                                        bgcolor: 'background.paper',
+                                        pt: 1,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 2,
+                                        flexWrap: 'wrap'
+                                    }}
+                                >
+                                    <Box sx={{ 
+                                        display: 'flex', 
+                                        gap: 4, 
+                                        flex: 1,
+                                        minWidth: '200px',
+                                        fontStyle: 'italic',
+                                        color: '#9e9e9e'
+                                    }}>
+                                        <Typography sx={{ fontStyle: 'italic', color: '#9e9e9e' }}>
+                                            Latitude: {formData.Latitude}
+                                        </Typography>
+                                        <Typography sx={{ fontStyle: 'italic', color: '#9e9e9e' }}>
+                                            Longitude: {formData.Longitude}
+                                        </Typography>
+                                    </Box>
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<MapIcon />}
+                                        onClick={verifyLocation}
+                                        sx={{ 
+                                            minWidth: '200px',
+                                            bgcolor: 'primary.light',
+                                            '&:hover': {
+                                                bgcolor: 'primary.main',
+                                            }
+                                        }}
+                                    >
+                                        View on Google Maps
+                                    </Button>
+                                </Box>
+                            </Grid>
+                        )}
                     </Grid>
 
                     <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>

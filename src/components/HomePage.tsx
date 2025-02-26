@@ -9,6 +9,7 @@ import {
     Tooltip,
     useTheme,
     Paper,
+    Button,
 } from '@mui/material';
 import {
     LocationOn,
@@ -16,6 +17,7 @@ import {
     LocalOffer as TagIcon,
     Update as UpdateIcon,
     Warning,
+    AddOutlined,
 } from '@mui/icons-material';
 import {
     BarChart,
@@ -34,6 +36,7 @@ import {
 import { LocationService } from '../services/LocationService';
 import { Location } from '../types/Location';
 import { pastelColors } from '../utils/colors';
+import { useNavigate } from 'react-router-dom';
 
 interface StatCardProps {
     title: string;
@@ -52,12 +55,8 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => (
             borderRadius: 2,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: color + '10',
-            transition: 'transform 0.2s',
-            '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-            },
+            bgcolor: 'background.paper',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
         }}
     >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -85,6 +84,7 @@ export default function HomePage() {
     const [locations, setLocations] = useState<Location[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const theme = useTheme();
+    const navigate = useNavigate();
 
     useEffect(() => {
         loadData();
@@ -177,214 +177,266 @@ export default function HomePage() {
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            p: 2,
+            p: 3,
         }}>
+            {/* Header Section */}
             <Box sx={{ 
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                mb: 2,
-                height: '32px',
+                mb: 3,
             }}>
-                <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                    Dashboard Overview
-                </Typography>
-                <Tooltip title="Refresh data">
-                    <IconButton 
-                        onClick={loadData}
-                        size="small"
-                        sx={{ 
-                            bgcolor: theme.palette.primary.light + '20',
-                            '&:hover': { 
-                                bgcolor: theme.palette.primary.light + '40',
-                                transform: 'rotate(180deg)',
-                            },
-                            transition: 'transform 0.3s ease-in-out',
-                        }}
-                    >
-                        <UpdateIcon />
-                    </IconButton>
-                </Tooltip>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                        Dashboard Overview
+                    </Typography>
+                    <Tooltip title="Refresh data">
+                        <IconButton 
+                            onClick={loadData}
+                            size="small"
+                            sx={{ 
+                                bgcolor: theme.palette.primary.light + '20',
+                                '&:hover': { 
+                                    bgcolor: theme.palette.primary.light + '40',
+                                    transform: 'rotate(180deg)',
+                                },
+                                transition: 'transform 0.3s ease-in-out',
+                            }}
+                        >
+                            <UpdateIcon />
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+                <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<AddOutlined />}
+                    onClick={() => navigate('/create')}
+                    sx={{
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: 2,
+                        backgroundColor: theme.palette.primary.main,
+                        '&:hover': {
+                            backgroundColor: theme.palette.primary.dark,
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 16px rgba(0,0,0,0.1)',
+                        },
+                        transition: 'all 0.2s',
+                    }}
+                >
+                    Create New Entry
+                </Button>
             </Box>
 
-            <Box sx={{ height: 'calc(100% - 48px)' }}> {/* Adjusted for header height + margin */}
-                <Grid container spacing={2} sx={{ height: '100%' }}>
-                    {/* Stats Row */}
-                    <Grid item xs={12}>
-                        <Grid container spacing={2} sx={{ height: '90px' }}>
-                            <Grid item xs={3}>
-                                <StatCard
-                                    title="Total Locations"
-                                    value={totalLocations}
-                                    icon={<LocationOn />}
-                                    color={pastelColors.blue}
-                                />
-                            </Grid>
-                            <Grid item xs={3}>
-                                <StatCard
-                                    title="Categories"
-                                    value={uniqueCategories}
-                                    icon={<Category />}
-                                    color={pastelColors.purple}
-                                />
-                            </Grid>
-                            <Grid item xs={3}>
-                                <StatCard
-                                    title="Unique Tags"
-                                    value={uniqueTags}
-                                    icon={<TagIcon />}
-                                    color={pastelColors.green}
-                                />
-                            </Grid>
-                            <Grid item xs={3}>
-                                <StatCard
-                                    title="Needs Update"
-                                    value={needsUpdate}
-                                    icon={<Warning />}
-                                    color={pastelColors.pink}
-                                />
-                            </Grid>
+            {/* Main Grid Container */}
+            <Grid container spacing={2} sx={{ height: 'calc(100% - 48px)', mt: 0 }}>
+                {/* Stats Cards Row */}
+                <Grid item xs={12} sx={{ height: '20%' }}>
+                    <Grid container spacing={2} sx={{ height: '100%', mt: 0 }}>
+                        <Grid item xs={3} sx={{ height: '100%' }}>
+                            <StatCard
+                                title="Total Locations"
+                                value={totalLocations}
+                                icon={<LocationOn />}
+                                color={pastelColors.blue}
+                            />
+                        </Grid>
+                        <Grid item xs={3} sx={{ height: '100%' }}>
+                            <StatCard
+                                title="Categories"
+                                value={uniqueCategories}
+                                icon={<Category />}
+                                color={pastelColors.purple}
+                            />
+                        </Grid>
+                        <Grid item xs={3} sx={{ height: '100%' }}>
+                            <StatCard
+                                title="Unique Tags"
+                                value={uniqueTags}
+                                icon={<TagIcon />}
+                                color={pastelColors.green}
+                            />
+                        </Grid>
+                        <Grid item xs={3} sx={{ height: '100%' }}>
+                            <StatCard
+                                title="Needs Update"
+                                value={needsUpdate}
+                                icon={<Warning />}
+                                color={pastelColors.pink}
+                            />
                         </Grid>
                     </Grid>
+                </Grid>
 
-                    {/* Charts Row */}
-                    <Grid item xs={12} sx={{ height: 'calc(100% - 106px)' }}> {/* Adjusted for stats height + spacing */}
-                        <Grid container spacing={2} sx={{ height: '100%' }}>
-                            {/* Timeline Chart */}
-                            <Grid item xs={8} sx={{ height: '100%' }}>
+                {/* Charts Row */}
+                <Grid item xs={12} sx={{ height: '80%' }}>
+                    <Grid container spacing={2} sx={{ height: '100%', mt: 0 }}>
+                        {/* Timeline Chart */}
+                        <Grid item xs={8} sx={{ height: '100%' }}>
+                            <Paper 
+                                elevation={0}
+                                sx={{ 
+                                    p: 3,
+                                    height: '100%',
+                                    borderRadius: 3,
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    bgcolor: 'background.paper',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                }}
+                            >
+                                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                                    Locations Timeline
+                                </Typography>
+                                <Box sx={{ flexGrow: 1 }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={timelineData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                            <XAxis 
+                                                dataKey="name" 
+                                                tick={{ fontSize: 12 }} 
+                                                stroke="#666"
+                                            />
+                                            <YAxis 
+                                                tick={{ fontSize: 12 }}
+                                                stroke="#666"
+                                            />
+                                            <RechartsTooltip 
+                                                contentStyle={{ 
+                                                    background: 'rgba(255, 255, 255, 0.95)',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                                                }}
+                                            />
+                                            <Line 
+                                                type="monotone" 
+                                                dataKey="value" 
+                                                stroke={theme.palette.primary.main}
+                                                strokeWidth={3}
+                                                dot={{ fill: theme.palette.primary.main }}
+                                                activeDot={{ r: 6 }}
+                                            />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            </Paper>
+                        </Grid>
+
+                        {/* Right Charts Column */}
+                        <Grid item xs={4} sx={{ height: '100%' }}>
+                            <Box sx={{ 
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2
+                            }}>
+                                {/* Category Distribution */}
                                 <Paper 
+                                    elevation={0}
                                     sx={{ 
-                                        p: 2,
-                                        height: '100%',
-                                        borderRadius: 2,
+                                        p: 3,
+                                        flex: 1,
+                                        borderRadius: 3,
                                         border: '1px solid',
                                         borderColor: 'divider',
+                                        bgcolor: 'background.paper',
                                         display: 'flex',
                                         flexDirection: 'column',
                                     }}
                                 >
-                                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                        Locations Timeline
+                                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                                        Category Distribution
                                     </Typography>
                                     <Box sx={{ flexGrow: 1 }}>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={timelineData}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis 
-                                                    dataKey="name" 
-                                                    tick={{ fontSize: 11 }} 
-                                                    height={20}
+                                            <PieChart>
+                                                <Pie
+                                                    data={categoryData}
+                                                    dataKey="value"
+                                                    nameKey="name"
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    outerRadius="80%"
+                                                    label={{ fontSize: 12 }}
+                                                >
+                                                    {categoryData.map((entry, index) => (
+                                                        <Cell 
+                                                            key={`cell-${index}`} 
+                                                            fill={CHART_COLORS[index % CHART_COLORS.length]} 
+                                                        />
+                                                    ))}
+                                                </Pie>
+                                                <RechartsTooltip 
+                                                    contentStyle={{ 
+                                                        background: 'rgba(255, 255, 255, 0.95)',
+                                                        border: 'none',
+                                                        borderRadius: '8px',
+                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                                                    }}
                                                 />
-                                                <YAxis 
-                                                    tick={{ fontSize: 11 }}
-                                                    width={25}
-                                                />
-                                                <RechartsTooltip />
-                                                <Line 
-                                                    type="monotone" 
-                                                    dataKey="value" 
-                                                    stroke={theme.palette.primary.main}
-                                                    strokeWidth={2}
-                                                />
-                                            </LineChart>
+                                            </PieChart>
                                         </ResponsiveContainer>
                                     </Box>
                                 </Paper>
-                            </Grid>
 
-                            {/* Right Column Charts */}
-                            <Grid item xs={4} sx={{ height: '100%' }}>
-                                <Grid container spacing={2} sx={{ height: '100%' }}>
-                                    {/* Pie Chart */}
-                                    <Grid item xs={12} sx={{ height: '50%' }}>
-                                        <Paper 
-                                            sx={{ 
-                                                p: 2,
-                                                height: '100%',
-                                                borderRadius: 2,
-                                                border: '1px solid',
-                                                borderColor: 'divider',
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                            }}
-                                        >
-                                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                                Category Distribution
-                                            </Typography>
-                                            <Box sx={{ flexGrow: 1 }}>
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <PieChart>
-                                                        <Pie
-                                                            data={categoryData}
-                                                            dataKey="value"
-                                                            nameKey="name"
-                                                            cx="50%"
-                                                            cy="50%"
-                                                            outerRadius={45}
-                                                            label={{ fontSize: 11 }}
-                                                        >
-                                                            {categoryData.map((entry, index) => (
-                                                                <Cell 
-                                                                    key={`cell-${index}`} 
-                                                                    fill={CHART_COLORS[index % CHART_COLORS.length]} 
-                                                                />
-                                                            ))}
-                                                        </Pie>
-                                                        <RechartsTooltip />
-                                                    </PieChart>
-                                                </ResponsiveContainer>
-                                            </Box>
-                                        </Paper>
-                                    </Grid>
-
-                                    {/* Bar Chart */}
-                                    <Grid item xs={12} sx={{ height: 'calc(50% - 16px)' }}> {/* Adjusted for grid spacing */}
-                                        <Paper 
-                                            sx={{ 
-                                                p: 2,
-                                                height: '100%',
-                                                borderRadius: 2,
-                                                border: '1px solid',
-                                                borderColor: 'divider',
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                            }}
-                                        >
-                                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                                Top Tags
-                                            </Typography>
-                                            <Box sx={{ flexGrow: 1 }}>
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <BarChart data={tagData} layout="vertical" barSize={12}>
-                                                        <CartesianGrid strokeDasharray="3 3" />
-                                                        <XAxis 
-                                                            type="number" 
-                                                            tick={{ fontSize: 11 }}
-                                                            height={20}
-                                                        />
-                                                        <YAxis 
-                                                            dataKey="name" 
-                                                            type="category" 
-                                                            width={70}
-                                                            tick={{ fontSize: 11 }}
-                                                        />
-                                                        <RechartsTooltip />
-                                                        <Bar 
-                                                            dataKey="value" 
-                                                            fill={pastelColors.purple + '80'}
-                                                            radius={[0, 4, 4, 0]}
-                                                        />
-                                                    </BarChart>
-                                                </ResponsiveContainer>
-                                            </Box>
-                                        </Paper>
-                                    </Grid>
-                                </Grid>
-                            </Grid>
+                                {/* Top Tags */}
+                                <Paper 
+                                    elevation={0}
+                                    sx={{ 
+                                        p: 3,
+                                        flex: 1,
+                                        borderRadius: 3,
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        bgcolor: 'background.paper',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                    }}
+                                >
+                                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                                        Top Tags
+                                    </Typography>
+                                    <Box sx={{ flexGrow: 1 }}>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={tagData} layout="vertical" barSize={20}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                                <XAxis 
+                                                    type="number" 
+                                                    tick={{ fontSize: 12 }}
+                                                    stroke="#666"
+                                                />
+                                                <YAxis 
+                                                    dataKey="name" 
+                                                    type="category" 
+                                                    tick={{ fontSize: 12 }}
+                                                    stroke="#666"
+                                                    width={100}
+                                                />
+                                                <RechartsTooltip 
+                                                    contentStyle={{ 
+                                                        background: 'rgba(255, 255, 255, 0.95)',
+                                                        border: 'none',
+                                                        borderRadius: '8px',
+                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                                                    }}
+                                                />
+                                                <Bar 
+                                                    dataKey="value" 
+                                                    fill={theme.palette.primary.light}
+                                                    radius={[0, 4, 4, 0]}
+                                                />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </Box>
+                                </Paper>
+                            </Box>
                         </Grid>
                     </Grid>
                 </Grid>
-            </Box>
+            </Grid>
         </Box>
     );
 } 

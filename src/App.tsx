@@ -277,7 +277,7 @@ function App() {
         );
     }
 
-    return (
+  return (
         <ThemeProvider theme={theme}>
             <CssBaseline />
             <BrowserRouter basename="/map_manager">
