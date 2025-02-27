@@ -72,8 +72,7 @@ export default function CategoriesPage() {
         }
 
         try {
-            // For now, we'll just add the new category and rely on the user to update locations manually
-            await LocationService.addCategory(editingCategory.new);
+            await LocationService.renameCategory(editingCategory.old, editingCategory.new);
             loadCategories();
             setIsEditDialogOpen(false);
             setError(null);
@@ -83,13 +82,20 @@ export default function CategoriesPage() {
     };
 
     const handleDelete = async (category: string) => {
-        // For now, we'll just show a warning that this is not implemented
-        alert('Deleting categories is not yet implemented as it requires updating all locations using this category.');
+        if (window.confirm(`Are you sure you want to delete the category "${category}"? This will remove the category from all locations using it.`)) {
+            try {
+                await LocationService.deleteCategory(category);
+                loadCategories();
+                setError(null);
+            } catch (err) {
+                setError('Failed to delete category');
+            }
+        }
     };
 
     return (
         <Box>
-            <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Typography variant="h4" component="h1">
                     Categories
                 </Typography>
@@ -97,6 +103,7 @@ export default function CategoriesPage() {
                     variant="contained"
                     startIcon={<AddOutlined />}
                     onClick={() => setIsAddDialogOpen(true)}
+                    sx={{ bgcolor: 'rgba(155, 138, 207, 0.2)', color: 'black' }}
                 >
                     Add Category
                 </Button>
@@ -114,7 +121,7 @@ export default function CategoriesPage() {
                         <ListItem
                             key={category}
                             secondaryAction={
-                                <Box>
+                                <Box sx={{ display: 'flex', gap: 2 }}>
                                     <IconButton
                                         edge="end"
                                         aria-label="edit"
@@ -182,8 +189,6 @@ export default function CategoriesPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
-
-            <CategoryOutlined sx={{ fontSize: 40, color: 'text.secondary', mb: 2 }} />
         </Box>
     );
 } 

@@ -168,7 +168,7 @@ export default function HomePage() {
         theme.palette.secondary.light,
         pastelColors.pink,
         pastelColors.yellow,
-        pastelColors.green,
+        pastelColors.lavender,
     ];
 
     return (
@@ -255,7 +255,7 @@ export default function HomePage() {
                                 title="Unique Tags"
                                 value={uniqueTags}
                                 icon={<TagIcon />}
-                                color={pastelColors.green}
+                                color={pastelColors.lavender}
                             />
                         </Grid>
                         <Grid item xs={3} sx={{ height: '100%' }}>

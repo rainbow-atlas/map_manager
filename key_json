@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "rainbowatlas",
+  "private_key_id": "bce899176660b229c174b499e763026c047ce14b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDjfA4O+7pvrPAq\nZugKrLygCGaUa63fzViZ2zN0cc2kiCD5GpECuqFyqwBxPKDR1YZZLgVx6RDmgM5H\n+IoJBFq3T6jnpLH/pIv5qKj76podQ6mVGI18qqMaBjAKW6W5/sXVRuSsjFmgtZtt\n+6RW1PVQmqHNRwQRUjjCDy1QqcvZBA08ZwOWfgLaGhgWeHCSxxTKX77yQsvQGZV4\n3ZxB/TmsDjqCt2Nj+lU31RNwY1d3obrGa6SJaIjNrixDPAWr7MycCYcSIWDjBpqP\nzEm6qWbawfT4souBce8yetBCR95lWGeNJhRMnguhSL1jjMOAEPY4+RssO/Z9qbLU\nI1/3yG2LAgMBAAECggEAFkbf55FjggEo/wtXHjMpQPC2/uzb45vr2RvxWi4KKdps\n2YgY+u/vfy0GHOYHh6pF1EuLRqBAwpngLtsaGrpIRJrymvCdamqg4dYllOSLVWH6\nuY+PIiNhrTA9mci8yM3iw2PZtpit7uzUkjzU10NWh0oFSKFzjAYFvzdA7vJvHyAK\nTKPaIqJqm3xE1I/+7msKPM21qfHD0yWfCwkbSxSfr8PMhiPblzuM6/ro5XQaUy/8\nrNwSmYZtKibPon+e0T6+zrcqecktZiB4STF/zHnzmI15qXkrEmYjDZZXs3pyEVkg\nN51nih+Nw0o3ZjxHjYJoUEBD0pKjngKZ9g+fphIa1QKBgQD8+Bue4+alXdHb81ZP\nvm7u4YtSrCCRhog7vnfiS106W1AhHue5RuZQdx0r5G87Q/CYg0JdacrSSwQm3psZ\nOk91OaF77q3yPrzCUd3tRdeYPKsSkNnnTHWTbo0LdAPX5iAhSZqb4Sy1iKhB7Spl\n9el0i5A5fqlxP4VSqwa7JqmSvQKBgQDmNcg/bb21au957NaV7TdXBorc0HAWLZ1P\nQEPZALNCd1DP6RCKibdsedRNujmDJm4DVaxOw9StyPFPm3PKQf3RLFurm0p1f0Uq\n+mocKA6I9UiY5+Vv8yyUT+jZ10gJ/SJyLbNoARvOTQPbmLOTAXvAkbJ10zWBYYBh\nYk8ifgPp5wKBgFI2hCuAX64wropwLAXgmwbxsCjfHfqNoWrhPO8DlTnpAUKyW5bg\nTuupuoZQSEIXk3LNfd0EC9GKZcAIKpnpVHeBklTHvipzbz8sAhch0q58URDImLjO\nJYwTqq0lODaLaLfIxwGQDcq1rhE29ceLQyMIVIgK/SB8B2VVhet+5i91AoGBAJFB\njkC3deRqvQApuJyROUHoFuaNfqv/zCqdWjIqhvGBZ7RIUu+XRe1kUdlZj8B5FyFz\nhW2Nkzy0dc7NP5p3WTgKzSzSp4DL9VDRAPMTM1inrE8Ow26H+bD7WulZNVNYLcvt\nmi4dxPW/EpgVGfnADd3MENbXlgM1ClRoO5Z//OgxAoGBAOirBbtZujwzMVmr6fjy\n8gy/wRnhyaSPftWzMyrP1/Rg4hDez88H86Ft4ZYQVeA/wSSO3hwkuedMVhSMSgD5\nWrD80OEWxTuXTG/xei+d5BCZWgGtfNFQyE15NnqHTw2huIn8NFqPRIPAE46+YCTN\nyN+h1zqBe+fFqcJSAlJXtXse\n-----END PRIVATE KEY-----\n",
+  "client_email": "rainbowapi@rainbowatlas.iam.gserviceaccount.com",
+  "client_id": "113505988498880689780",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/rainbowapi%40rainbowatlas.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

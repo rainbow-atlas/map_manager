@@ -14,7 +14,7 @@ export const generatePastelGradient = () => {
 
 export const pastelColors = {
     blue: '#E6F3FF',
-    green: '#E7F5E9',
+    lavender: '#E6E6FF',
     purple: '#F3E6FF',
     pink: '#FFE6F3',
     yellow: '#FFF8E6',

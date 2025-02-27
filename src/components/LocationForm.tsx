@@ -78,10 +78,17 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
     const placesService = useRef<google.maps.places.PlacesService | null>(null);
     const [addressVerified, setAddressVerified] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
+    const [availableTags, setAvailableTags] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
 
     // Load categories when component mounts
     useEffect(() => {
         setCategories(LocationService.getCategories());
+    }, []);
+
+    useEffect(() => {
+        // Load available tags from the Tags worksheet
+        setAvailableTags(LocationService.getTags());
     }, []);
 
     useEffect(() => {
@@ -206,6 +213,20 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                 setAddressVerified(false);
             }
         }
+    };
+
+    const handleTagsChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const newTags = event.target.value.split(',').map(tag => tag.trim());
+        
+        // Validate that all tags exist in the Tags worksheet
+        const invalidTags = newTags.filter(tag => tag && !availableTags.includes(tag));
+        if (invalidTags.length > 0) {
+            setError(`Invalid tags: ${invalidTags.join(', ')}. Please use only existing tags.`);
+            return;
+        }
+        
+        setError(null);
+        handleTextChange('Tags')(event);
     };
 
     const validateForm = (): boolean => {
@@ -384,8 +405,9 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 fullWidth
                                 label="Tags"
                                 value={formData.Tags}
-                                onChange={handleTextChange('Tags')}
-                                helperText="Separate tags with commas"
+                                onChange={handleTagsChange}
+                                error={!!error}
+                                helperText={error || `Available tags: ${availableTags.join(', ')}`}
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -463,7 +485,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                             ...params.InputProps,
                                             startAdornment: (
                                                 <InputAdornment position="start">
-                                                    <PlaceIcon color={addressVerified ? "success" : apiError ? "error" : "inherit"} />
+                                                    <PlaceIcon color={addressVerified ? "primary" : apiError ? "error" : "inherit"} />
                                                 </InputAdornment>
                                             ),
                                         }}
@@ -506,7 +528,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                             minWidth: '200px',
                                             bgcolor: 'primary.light',
                                             '&:hover': {
-                                                bgcolor: 'primary.main',
+                                                bgcolor: 'primary.dark',
                                             }
                                         }}
                                     >

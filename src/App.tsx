@@ -100,6 +100,14 @@ const theme = createTheme({
             color: '#000000',
         },
     },
+    shape: {
+        borderRadius: 8,
+    },
+});
+
+// Extend the theme to include component overrides
+const extendedTheme = createTheme({
+    ...theme,
     components: {
         MuiButton: {
             styleOverrides: {
@@ -117,10 +125,10 @@ const theme = createTheme({
                     },
                 },
                 outlined: {
-                    borderColor: '#95D5B2',
+                    borderColor: theme.palette.primary.light,
                     '&:hover': {
-                        backgroundColor: '#95D5B220',
-                        borderColor: '#74C69D',
+                        backgroundColor: `${theme.palette.primary.light}20`,
+                        borderColor: theme.palette.primary.main,
                     },
                 },
             },
@@ -161,10 +169,10 @@ const theme = createTheme({
                     '& .MuiOutlinedInput-root': {
                         borderRadius: 8,
                         '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: '#95D5B2',
+                            borderColor: theme.palette.primary.light,
                         },
                         '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: '#74C69D',
+                            borderColor: theme.palette.primary.main,
                         },
                     },
                     '& .MuiInputLabel-root': {
@@ -184,16 +192,16 @@ const theme = createTheme({
                 root: {
                     borderRadius: 8,
                     fontWeight: 500,
-                    backgroundColor: '#95D5B220',
+                    backgroundColor: `${theme.palette.primary.light}20`,
                     color: '#000000',
                     '&:hover': {
-                        backgroundColor: '#95D5B240',
+                        backgroundColor: `${theme.palette.primary.light}40`,
                     },
                 },
                 outlined: {
-                    borderColor: '#95D5B2',
+                    borderColor: theme.palette.primary.light,
                     '&:hover': {
-                        backgroundColor: '#95D5B220',
+                        backgroundColor: `${theme.palette.primary.light}20`,
                     },
                 },
             },
@@ -204,7 +212,7 @@ const theme = createTheme({
                     borderRadius: 8,
                 },
                 standardSuccess: {
-                    backgroundColor: '#95D5B220',
+                    backgroundColor: `${theme.palette.primary.light}20`,
                     color: '#000000',
                 },
                 standardError: {
@@ -239,14 +247,11 @@ const theme = createTheme({
             styleOverrides: {
                 root: {
                     '&:hover': {
-                        backgroundColor: '#95D5B220',
+                        backgroundColor: `${theme.palette.primary.light}20`,
                     },
                 },
             },
         },
-    },
-    shape: {
-        borderRadius: 8,
     },
 });
 
@@ -270,7 +275,7 @@ function App() {
 
     if (!isAuthenticated) {
         return (
-            <ThemeProvider theme={theme}>
+            <ThemeProvider theme={extendedTheme}>
                 <CssBaseline />
                 <LoginPage onLoginSuccess={handleLoginSuccess} />
             </ThemeProvider>
@@ -278,7 +283,7 @@ function App() {
     }
 
   return (
-        <ThemeProvider theme={theme}>
+        <ThemeProvider theme={extendedTheme}>
             <CssBaseline />
             <BrowserRouter basename="/map_manager">
                 <Layout onLogout={handleLogout}>

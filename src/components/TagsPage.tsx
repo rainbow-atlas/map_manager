@@ -32,26 +32,25 @@ export default function TagsPage() {
     const [editingTag, setEditingTag] = useState({ old: '', new: '' });
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        loadTags();
-    }, []);
-
-    const loadTags = () => {
-        // Extract unique tags from all locations
-        const allLocations = LocationService.getAllLocations();
-        const uniqueTags = new Set<string>();
-        
-        allLocations.forEach(location => {
-            if (location.Tags) {
-                location.Tags.split(',')
-                    .map(tag => tag.trim())
-                    .filter(tag => tag.length > 0)
-                    .forEach(tag => uniqueTags.add(tag));
-            }
-        });
-
-        setTags(Array.from(uniqueTags).sort());
+    const loadTags = async () => {
+        try {
+            const worksheetTags = LocationService.getTags();
+            // Ensure we have unique tags and they are properly sorted
+            const uniqueTags = [...new Set(worksheetTags)].sort();
+            setTags(uniqueTags);
+            setError(null);
+        } catch (error) {
+            console.error('Error loading tags:', error);
+            setError('Failed to load tags. Please try again.');
+        }
     };
+
+    useEffect(() => {
+        loadTags().catch(error => {
+            console.error('Error in loadTags effect:', error);
+            setError('Failed to load tags. Please try again.');
+        });
+    }, []);
 
     const handleAdd = async () => {
         if (!newTag.trim()) {
@@ -63,9 +62,16 @@ export default function TagsPage() {
             return;
         }
 
-        // For now, we'll just show a message that this needs to be used in locations
-        alert('Tags can be added when editing locations. This list shows currently used tags.');
-        setIsAddDialogOpen(false);
+        try {
+            await LocationService.addTag(newTag);
+            await loadTags(); // Refresh the tags list
+            setNewTag('');
+            setIsAddDialogOpen(false);
+            setError(null);
+        } catch (error) {
+            console.error('Error adding tag:', error);
+            setError('Failed to add tag. Please try again.');
+        }
     };
 
     const handleEdit = async () => {
@@ -78,14 +84,34 @@ export default function TagsPage() {
             return;
         }
 
-        // For now, we'll just show a warning that this needs to be implemented
-        alert('Editing tags requires updating all locations using this tag. This feature will be implemented soon.');
-        setIsEditDialogOpen(false);
+        try {
+            await LocationService.renameTag(editingTag.old, editingTag.new);
+            await loadTags(); // Refresh the tags list
+            setIsEditDialogOpen(false);
+            setError(null);
+        } catch (error) {
+            console.error('Error editing tag:', error);
+            setError('Failed to edit tag. Please try again.');
+        }
     };
 
     const handleDelete = async (tag: string) => {
-        // For now, we'll just show a warning that this is not implemented
-        alert('Deleting tags requires updating all locations using this tag. This feature will be implemented soon.');
+        if (window.confirm(`Are you sure you want to delete the tag "${tag}"? This will remove it from all locations using it.`)) {
+            try {
+                setError(null);
+                // First remove the tag from the UI to prevent doubling
+                setTags(currentTags => currentTags.filter(t => t !== tag));
+                // Then delete from the service
+                await LocationService.deleteTag(tag);
+                // Finally refresh the tags to ensure sync
+                await loadTags();
+            } catch (error) {
+                console.error('Error deleting tag:', error);
+                setError('Failed to delete tag. Please try again.');
+                // Refresh tags in case of error to ensure UI is in sync
+                await loadTags();
+            }
+        }
     };
 
     return (
@@ -111,9 +137,9 @@ export default function TagsPage() {
 
             <Paper sx={{ mt: 2, p: 2 }}>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {tags.map((tag) => (
+                    {tags.map((tag, index) => (
                         <Chip
-                            key={tag}
+                            key={`${tag}-${index}`}
                             label={tag}
                             onDelete={() => handleDelete(tag)}
                             onClick={() => {
@@ -166,8 +192,6 @@ export default function TagsPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
-
-            <LocalOfferOutlined sx={{ fontSize: 40, color: 'text.secondary', mb: 2 }} />
         </Box>
     );
 } 

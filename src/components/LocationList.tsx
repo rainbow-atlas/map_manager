@@ -46,6 +46,7 @@ import { Location } from '../types/Location';
 import { LocationService } from '../services/LocationService';
 import LocationForm from './LocationForm';
 import { pastelColors } from '../utils/colors';
+import { useTheme } from '@mui/material/styles';
 
 interface FilterState {
     search: string;
@@ -73,6 +74,7 @@ export default function LocationList() {
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [availableTags, setAvailableTags] = useState<string[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
+    const theme = useTheme();
 
     const loadLocations = async () => {
         setIsLoading(true);
@@ -82,17 +84,8 @@ export default function LocationList() {
             const allLocations = LocationService.getAllLocations();
             setLocations(allLocations);
             
-            // Extract unique tags
-            const tags = new Set<string>();
-            allLocations.forEach(location => {
-                if (location.Tags) {
-                    location.Tags.split(',')
-                        .map(tag => tag.trim())
-                        .filter(tag => tag.length > 0)
-                        .forEach(tag => tags.add(tag));
-                }
-            });
-            setAvailableTags(Array.from(tags).sort());
+            // Get tags from the Tags worksheet
+            setAvailableTags(LocationService.getTags());
             
             // Get categories
             setCategories(LocationService.getCategories());
@@ -333,9 +326,9 @@ export default function LocationList() {
                                 disabled={isLoading}
                                 color="primary"
                                 sx={{ 
-                                    bgcolor: pastelColors.green + '20',
+                                    bgcolor: theme.palette.primary.light + '20',
                                     '&:hover': {
-                                        bgcolor: pastelColors.green + '40',
+                                        bgcolor: theme.palette.primary.light + '40',
                                     },
                                 }}
                             >
