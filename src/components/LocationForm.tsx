@@ -19,6 +19,7 @@ import {
     SelectChangeEvent,
     Alert,
     AlertTitle,
+    Chip,
 } from '@mui/material';
 import {
     Language as WebsiteIcon,
@@ -45,7 +46,7 @@ const libraries = ['places'];
 
 export default function LocationForm({ initialData, onSave, onCancel }: LocationFormProps) {
     const { isLoaded, loadError } = useLoadScript({
-        googleMapsApiKey: import.meta.env.VITE_GOOGLE_API_KEY || '',
+        googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
         libraries: libraries as any,
     });
 
@@ -74,12 +75,13 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
     const [newCategory, setNewCategory] = useState('');
     const [addressInput, setAddressInput] = useState('');
     const [addressOptions, setAddressOptions] = useState<google.maps.places.AutocompletePrediction[]>([]);
-    const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
-    const placesService = useRef<google.maps.places.PlacesService | null>(null);
     const [addressVerified, setAddressVerified] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
     const [availableTags, setAvailableTags] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [selectedTags, setSelectedTags] = useState<string[]>([]);
+    const [isAddingTag, setIsAddingTag] = useState(false);
+    const [newTag, setNewTag] = useState('');
 
     // Load categories when component mounts
     useEffect(() => {
@@ -92,18 +94,20 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
     }, []);
 
     useEffect(() => {
-        if (isLoaded && !autocompleteService.current) {
-            console.log('Google Maps script loaded, initializing AutocompleteService');
-            autocompleteService.current = new google.maps.places.AutocompleteService();
-        }
-    }, [isLoaded]);
-
-    useEffect(() => {
         if (loadError) {
             Logger.error('Failed to load Google Maps script', loadError);
             setApiError('Failed to load Google Maps services. Please check your API key and enabled services.');
         }
     }, [loadError]);
+
+    // Initialize selected tags when component mounts or initialData changes
+    useEffect(() => {
+        if (initialData?.Tags) {
+            setSelectedTags(initialData.Tags.split(',').map(tag => tag.trim()).filter(Boolean));
+        } else {
+            setSelectedTags([]);
+        }
+    }, [initialData]);
 
     const handleTextChange = (field: keyof Location) => (
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -133,10 +137,11 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
             return;
         }
         
-        if (value && autocompleteService.current) {
+        if (value) {
             try {
                 Logger.info(`Fetching address predictions for: ${value}`);
-                const results = await autocompleteService.current.getPlacePredictions({
+                const autocomplete = new google.maps.places.AutocompleteService();
+                const results = await autocomplete.getPlacePredictions({
                     input: value,
                 });
                 setAddressOptions(results?.predictions || []);
@@ -158,60 +163,30 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
         }
     };
 
-    const handleAddressSelect = async (prediction: google.maps.places.AutocompletePrediction | null) => {
-        setApiError(null); // Clear previous errors
-        if (!prediction) {
-            setAddressVerified(false);
-            return;
-        }
-
+    const handleAddressSelect = async (prediction: google.maps.places.AutocompletePrediction) => {
         if (!isLoaded) {
+            Logger.warn('Attempted to use Places API before it was loaded');
             setApiError('Google Maps services are still loading...');
             return;
         }
 
-        if (!placesService.current && isLoaded) {
-            const tempNode = document.createElement('div');
-            placesService.current = new google.maps.places.PlacesService(tempNode);
-        }
-
-        if (placesService.current) {
-            try {
-                placesService.current.getDetails(
-                    {
-                        placeId: prediction.place_id,
-                        fields: ['formatted_address', 'geometry'],
-                    },
-                    (place, status) => {
-                        if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
-                            const lat = place.geometry.location.lat();
-                            const lng = place.geometry.location.lng();
-                            setFormData({
-                                ...formData,
-                                Address: place.formatted_address || prediction.description,
-                                Latitude: lat,
-                                Longitude: lng,
-                            });
-                            setAddressVerified(true);
-                        } else {
-                            setAddressVerified(false);
-                            if (status === google.maps.places.PlacesServiceStatus.REQUEST_DENIED) {
-                                setApiError('Places API is not enabled. Please enable it in the Google Cloud Console.');
-                            } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-                                setApiError('No details found for this location.');
-                            } else {
-                                setApiError(`Failed to get place details: ${status}`);
-                            }
-                        }
-                    }
-                );
-            } catch (error) {
-                console.error('Error fetching place details:', error);
-                if (error instanceof Error) {
-                    setApiError(`Failed to get place details: ${error.message}`);
-                }
-                setAddressVerified(false);
+        try {
+            const geocoder = new google.maps.Geocoder();
+            const result = await geocoder.geocode({ placeId: prediction.place_id });
+            
+            if (result.results && result.results.length > 0) {
+                const location = result.results[0].geometry.location;
+                setFormData({
+                    ...formData,
+                    Address: prediction.description,
+                    Latitude: location.lat(),
+                    Longitude: location.lng(),
+                });
+                setAddressVerified(true);
             }
+        } catch (error) {
+            Logger.error('Error geocoding selected address', error);
+            setApiError('Failed to get location details for the selected address.');
         }
     };
 
@@ -304,6 +279,18 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                 '_blank'
             );
         }
+    };
+
+    const handleAddTag = async () => {
+        if (newTag && !availableTags.includes(newTag)) {
+            await LocationService.addTag(newTag);
+            setAvailableTags(LocationService.getTags());
+            const updatedTags = [...selectedTags, newTag];
+            setSelectedTags(updatedTags);
+            setFormData(prev => ({ ...prev, Tags: updatedTags.join(', ') }));
+            setNewTag('');
+        }
+        setIsAddingTag(false);
     };
 
     return (
@@ -401,22 +388,72 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                             />
                         </Grid>
                         <Grid item xs={12}>
-                            <TextField
-                                fullWidth
-                                label="Tags"
-                                value={formData.Tags}
-                                onChange={handleTagsChange}
-                                error={!!error}
-                                helperText={error || `Available tags: ${availableTags.join(', ')}`}
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <TagIcon />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                                <FormControl fullWidth>
+                                    <InputLabel>Add Tag</InputLabel>
+                                    <Select
+                                        value=""
+                                        onChange={(event) => {
+                                            const newTag = event.target.value;
+                                            if (newTag && !selectedTags.includes(newTag)) {
+                                                const updatedTags = [...selectedTags, newTag];
+                                                setSelectedTags(updatedTags);
+                                                setFormData(prev => ({ ...prev, Tags: updatedTags.join(', ') }));
+                                            }
+                                        }}
+                                        label="Add Tag"
+                                        startAdornment={
+                                            <InputAdornment position="start">
+                                                <TagIcon />
+                                            </InputAdornment>
+                                        }
+                                    >
+                                        {availableTags.map((tag) => (
+                                            <MenuItem key={tag} value={tag}>
+                                                {tag}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <Button
+                                    startIcon={<AddIcon />}
+                                    onClick={() => setIsAddingTag(true)}
+                                    variant="outlined"
+                                    sx={{ minWidth: '180px', height: '56px' }}
+                                >
+                                    Add New Tag
+                                </Button>
+                            </Box>
                         </Grid>
+                        {selectedTags.length > 0 && (
+                            <Grid item xs={12}>
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    flexWrap: 'wrap', 
+                                    gap: 1, 
+                                    mt: 1,
+                                    p: 2,
+                                    bgcolor: 'background.paper',
+                                    borderRadius: 1,
+                                    border: '1px solid',
+                                    borderColor: 'divider'
+                                }}>
+                                    {selectedTags.map((tag, index) => (
+                                        <Chip
+                                            key={tag}
+                                            label={tag}
+                                            onDelete={() => {
+                                                const newTags = selectedTags.filter((_, i) => i !== index);
+                                                setSelectedTags(newTags);
+                                                setFormData(prev => ({ ...prev, Tags: newTags.join(', ') }));
+                                            }}
+                                            color="primary"
+                                            size="small"
+                                        />
+                                    ))}
+                                </Box>
+                            </Grid>
+                        )}
                     </Grid>
 
                     <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>
@@ -466,7 +503,10 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                     setAddressVerified(false);
                                 }}
                                 onChange={(_, value) => {
-                                    if (typeof value === 'string') {
+                                    if (value === null) {
+                                        setFormData({ ...formData, Address: '' });
+                                        setAddressVerified(false);
+                                    } else if (typeof value === 'string') {
                                         setFormData({ ...formData, Address: value });
                                         setAddressVerified(false);
                                     } else {
@@ -476,16 +516,16 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 renderInput={(params) => (
                                     <TextField
                                         {...params}
-                                        required
-                                        fullWidth
                                         label="Address"
-                                        error={!!formErrors.Address || !!apiError}
+                                        fullWidth
+                                        required
+                                        error={!!formErrors.Address}
                                         helperText={formErrors.Address}
                                         InputProps={{
                                             ...params.InputProps,
                                             startAdornment: (
                                                 <InputAdornment position="start">
-                                                    <PlaceIcon color={addressVerified ? "primary" : apiError ? "error" : "inherit"} />
+                                                    <PlaceIcon />
                                                 </InputAdornment>
                                             ),
                                         }}
@@ -634,6 +674,27 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                 <DialogActions>
                     <Button onClick={() => setIsAddingCategory(false)}>Cancel</Button>
                     <Button onClick={handleAddCategory} variant="contained">
+                        Add
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Dialog for adding new tag */}
+            <Dialog open={isAddingTag} onClose={() => setIsAddingTag(false)}>
+                <DialogTitle>Add New Tag</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        label="Tag Name"
+                        fullWidth
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setIsAddingTag(false)}>Cancel</Button>
+                    <Button onClick={handleAddTag} variant="contained">
                         Add
                     </Button>
                 </DialogActions>

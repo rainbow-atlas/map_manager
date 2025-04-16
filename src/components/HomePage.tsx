@@ -48,33 +48,41 @@ interface StatCardProps {
 const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => (
     <Card
         sx={{
-            p: 2,
+            p: 3,
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            borderRadius: 2,
+            borderRadius: 3,
             border: '1px solid',
             borderColor: 'divider',
             bgcolor: 'background.paper',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+            boxShadow: '0 2px 12px rgba(0, 0, 0, 0.05)',
+            transition: 'all 0.2s ease-in-out',
+            '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+            },
         }}
     >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography variant="body2" color="text.secondary">
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500 }}>
                 {title}
             </Typography>
             <Box sx={{ 
-                p: 0.5, 
-                borderRadius: 1,
+                p: 1, 
+                borderRadius: 2,
                 bgcolor: color + '20',
                 color: 'primary.main',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
+                width: 40,
+                height: 40,
             }}>
                 {icon}
             </Box>
         </Box>
-        <Typography variant="h5" sx={{ fontWeight: 600 }}>
+        <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.primary' }}>
             {value}
         </Typography>
     </Card>
@@ -230,11 +238,11 @@ export default function HomePage() {
             </Box>
 
             {/* Main Grid Container */}
-            <Grid container spacing={2} sx={{ height: 'calc(100% - 48px)', mt: 0 }}>
+            <Grid container spacing={2} sx={{ flexGrow: 1, overflow: 'auto' }}>
                 {/* Stats Cards Row */}
-                <Grid item xs={12} sx={{ height: '20%' }}>
-                    <Grid container spacing={2} sx={{ height: '100%', mt: 0 }}>
-                        <Grid item xs={3} sx={{ height: '100%' }}>
+                <Grid item xs={12}>
+                    <Grid container spacing={2}>
+                        <Grid item xs={3}>
                             <StatCard
                                 title="Total Locations"
                                 value={totalLocations}
@@ -242,7 +250,7 @@ export default function HomePage() {
                                 color={pastelColors.blue}
                             />
                         </Grid>
-                        <Grid item xs={3} sx={{ height: '100%' }}>
+                        <Grid item xs={3}>
                             <StatCard
                                 title="Categories"
                                 value={uniqueCategories}
@@ -250,7 +258,7 @@ export default function HomePage() {
                                 color={pastelColors.purple}
                             />
                         </Grid>
-                        <Grid item xs={3} sx={{ height: '100%' }}>
+                        <Grid item xs={3}>
                             <StatCard
                                 title="Unique Tags"
                                 value={uniqueTags}
@@ -258,7 +266,7 @@ export default function HomePage() {
                                 color={pastelColors.lavender}
                             />
                         </Grid>
-                        <Grid item xs={3} sx={{ height: '100%' }}>
+                        <Grid item xs={3}>
                             <StatCard
                                 title="Needs Update"
                                 value={needsUpdate}
@@ -270,15 +278,15 @@ export default function HomePage() {
                 </Grid>
 
                 {/* Charts Row */}
-                <Grid item xs={12} sx={{ height: '80%' }}>
-                    <Grid container spacing={2} sx={{ height: '100%', mt: 0 }}>
+                <Grid item xs={12}>
+                    <Grid container spacing={2}>
                         {/* Timeline Chart */}
-                        <Grid item xs={8} sx={{ height: '100%' }}>
+                        <Grid item xs={8}>
                             <Paper 
                                 elevation={0}
                                 sx={{ 
                                     p: 3,
-                                    height: '100%',
+                                    height: 400,
                                     borderRadius: 3,
                                     border: '1px solid',
                                     borderColor: 'divider',
@@ -326,7 +334,7 @@ export default function HomePage() {
                         </Grid>
 
                         {/* Right Charts Column */}
-                        <Grid item xs={4} sx={{ height: '100%' }}>
+                        <Grid item xs={4}>
                             <Box sx={{ 
                                 height: '100%',
                                 display: 'flex',

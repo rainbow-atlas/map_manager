@@ -264,13 +264,17 @@ export class GoogleSheetsService {
                         'Accept': 'application/json',
                         'Content-Type': 'application/json',
                     },
+                    mode: 'cors',
+                    credentials: 'omit'
                 }
             );
+            
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Sheet clear error:', errorText);
-                throw new Error('Failed to clear range');
+                throw new Error(`Failed to clear range: ${errorText}`);
             }
+            
             return await response.json();
         } catch (error) {
             console.error('Error clearing range:', error);

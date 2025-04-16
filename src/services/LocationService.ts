@@ -283,9 +283,6 @@ export class LocationService {
     static async addTag(tag: string): Promise<void> {
         console.log('Adding tag:', tag);
         try {
-            // First, clear the entire Tags range
-            await this.sheetsService.clearRange(SHEET_ID, TAGS_LIST_RANGE);
-            
             // Add new tag to memory if it doesn't exist
             if (!this.tags.includes(tag)) {
                 this.tags.push(tag);
@@ -295,11 +292,10 @@ export class LocationService {
             this.tags = [...new Set(this.tags)].sort();
             
             // Update the Tags worksheet with the clean list
-            if (this.tags.length > 0) {
-                await this.sheetsService.updateSheet(SHEET_ID, TAGS_LIST_RANGE, 
-                    this.tags.map(t => [t])
-                );
-            }
+            // Using A2:A to ensure we start from row 2 and cover all existing tags
+            await this.sheetsService.updateSheet(SHEET_ID, 'Tags!A2:A', 
+                this.tags.map(t => [t])
+            );
             
             // Log the addition only if it was a new tag
             if (!this.tags.includes(tag)) {
@@ -366,33 +362,25 @@ export class LocationService {
         console.log('Deleting tag:', tag);
         
         try {
-            // First, clear the entire Tags range
-            await this.sheetsService.clearRange(SHEET_ID, TAGS_LIST_RANGE);
-            
             // Remove tag from memory
             this.tags = this.tags.filter(t => t !== tag);
             
             // Update the Tags worksheet with the filtered list
-            if (this.tags.length > 0) {
-                await this.sheetsService.updateSheet(SHEET_ID, TAGS_LIST_RANGE, 
-                    this.tags.map(t => [t])
-                );
-            }
-
-            // Then update locations
+            // Using A2:A to ensure we start from row 2 and cover all existing tags
+            await this.sheetsService.updateSheet(SHEET_ID, 'Tags!A2:A', 
+                this.tags.map(t => [t])
+            );
+            
+            // Update all locations that had this tag
             const locationsToUpdate = this.locations.filter(loc => 
                 loc.Tags && loc.Tags.split(',').map(t => t.trim()).includes(tag)
             );
             
-            // Update each location to remove the tag
+            // Update each location with the tag removed
             for (const location of locationsToUpdate) {
-                const tags = location.Tags ? 
-                    location.Tags.split(',')
-                        .map(t => t.trim())
-                        .filter(t => t !== tag && t !== '')
-                    : [];
-                    
-                const updatedLocation = { ...location, Tags: tags.join(', ') };
+                const tags = location.Tags ? location.Tags.split(',').map(t => t.trim()) : [];
+                const updatedTags = tags.filter(t => t !== tag);
+                const updatedLocation = { ...location, Tags: updatedTags.join(', ') };
                 const rowIndex = this.locations.findIndex(loc => loc.ID === location.ID) + 2;
                 await this.updateRow(rowIndex, this.locationToRow(updatedLocation));
                 
@@ -405,10 +393,11 @@ export class LocationService {
             
             // Log the deletion
             await this.logChange('tag', 'DELETE', tag);
+            
+            // Refresh data to ensure UI is updated
+            await this.refreshData();
         } catch (error) {
             console.error('Error deleting tag:', error);
-            // If there's an error, refresh data to ensure consistency
-            await this.refreshData();
             throw new Error('Failed to delete tag');
         }
     }
