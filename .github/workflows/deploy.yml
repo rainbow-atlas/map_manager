@@ -26,13 +26,21 @@ jobs:
       - name: Install dependencies
         run: npm install
       
+      - name: Debug Users Config
+        run: |
+          echo "Length of VITE_USERS_CONFIG: ${#VITE_USERS_CONFIG}"
+          echo "First character: ${VITE_USERS_CONFIG:0:1}"
+          echo "Last character: ${VITE_USERS_CONFIG: -1}"
+        env:
+          VITE_USERS_CONFIG: ${{ secrets.VITE_USERS_CONFIG }}
+      
       - name: Build
         env:
           VITE_GOOGLE_CLIENT_EMAIL: ${{ secrets.VITE_GOOGLE_CLIENT_EMAIL }}
           VITE_GOOGLE_PRIVATE_KEY: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY }}
           VITE_GOOGLE_PRIVATE_KEY_ID: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY_ID }}
           VITE_GOOGLE_SHEET_ID: ${{ secrets.VITE_GOOGLE_SHEET_ID }}
-          VITE_USERS_CONFIG: ${{ secrets.VITE_USERS_CONFIG }}
+          VITE_USERS_CONFIG: ${{ toJSON(secrets.VITE_USERS_CONFIG) }}
           VITE_GOOGLE_TYPE: ${{ secrets.VITE_GOOGLE_TYPE }}
           VITE_GOOGLE_PROJECT_ID: ${{ secrets.VITE_GOOGLE_PROJECT_ID }}
           VITE_GOOGLE_AUTH_URI: ${{ secrets.VITE_GOOGLE_AUTH_URI }}

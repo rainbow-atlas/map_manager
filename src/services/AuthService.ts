@@ -19,15 +19,29 @@ export class AuthService {
             throw new Error('VITE_USERS_CONFIG environment variable is not set');
         }
 
+        console.log('Raw users config:', usersConfig);
+        console.log('Config type:', typeof usersConfig);
+        console.log('Config length:', usersConfig.length);
+        console.log('First 10 chars:', usersConfig.substring(0, 10));
+        console.log('Last 10 chars:', usersConfig.substring(usersConfig.length - 10));
+
         try {
             const users = JSON.parse(usersConfig);
+            console.log('Parsed users:', users);
             Object.entries(users).forEach(([username, config]) => {
                 if (typeof config === 'object' && config !== null && 'password' in config && 'role' in config) {
                     this.users.set(username, config as UserConfig);
                 }
             });
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('Failed to parse users configuration:', error);
+            if (error instanceof Error) {
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack,
+                    config: usersConfig
+                });
+            }
             throw new Error('Invalid users configuration format');
         }
 
