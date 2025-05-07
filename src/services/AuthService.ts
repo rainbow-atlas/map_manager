@@ -28,11 +28,29 @@ export class AuthService {
         try {
             const users = JSON.parse(usersConfig);
             console.log('Parsed users:', users);
+            console.log('Users type:', typeof users);
+            console.log('Is object?', typeof users === 'object');
+            console.log('Is null?', users === null);
+            
             Object.entries(users).forEach(([username, config]) => {
-                if (typeof config === 'object' && config !== null && 'password' in config && 'role' in config) {
+                console.log('Processing user:', username, config);
+                console.log('Config type:', typeof config);
+                console.log('Is object?', typeof config === 'object');
+                console.log('Is null?', config === null);
+                
+                const configObj = config as Record<string, unknown>;
+                console.log('Has password?', 'password' in configObj);
+                console.log('Has role?', 'role' in configObj);
+                
+                if (typeof config === 'object' && config !== null && 'password' in configObj && 'role' in configObj) {
                     this.users.set(username, config as UserConfig);
+                    console.log('Added user:', username);
+                } else {
+                    console.log('Skipped invalid user:', username);
                 }
             });
+            
+            console.log('Total users added:', this.users.size);
         } catch (error: unknown) {
             console.error('Failed to parse users configuration:', error);
             if (error instanceof Error) {
