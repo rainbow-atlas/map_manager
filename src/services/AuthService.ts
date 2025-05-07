@@ -3,15 +3,38 @@ interface User {
     role: 'admin' | 'editor' | 'viewer' | 'guest';
 }
 
+interface UserConfig {
+    password: string;
+    role: 'admin' | 'editor' | 'viewer' | 'guest';
+}
+
 export class AuthService {
     private static currentUser: User | null = null;
+    private static readonly users = new Map<string, UserConfig>();
 
-    private static readonly users = new Map([
-        ['admin', { password: 'rainbow2024!', role: 'admin' as const }],
-        ['editor', { password: 'atlas2024!', role: 'editor' as const }],
-        ['viewer', { password: 'map2024!', role: 'viewer' as const }],
-        ['guest', { password: 'welcome2024!', role: 'guest' as const }]
-    ]);
+    static {
+        // Load users from environment variables
+        const usersConfig = import.meta.env.VITE_USERS_CONFIG;
+        if (!usersConfig) {
+            throw new Error('VITE_USERS_CONFIG environment variable is not set');
+        }
+
+        try {
+            const users = JSON.parse(usersConfig);
+            Object.entries(users).forEach(([username, config]) => {
+                if (typeof config === 'object' && config !== null && 'password' in config && 'role' in config) {
+                    this.users.set(username, config as UserConfig);
+                }
+            });
+        } catch (error) {
+            console.error('Failed to parse users configuration:', error);
+            throw new Error('Invalid users configuration format');
+        }
+
+        if (this.users.size === 0) {
+            throw new Error('No valid users found in configuration');
+        }
+    }
 
     static login(username: string, password: string): boolean {
         const user = this.users.get(username);
