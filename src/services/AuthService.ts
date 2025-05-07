@@ -26,7 +26,21 @@ export class AuthService {
         console.log('Last 10 chars:', usersConfig.substring(usersConfig.length - 10));
 
         try {
-            const users = JSON.parse(usersConfig);
+            // Try to parse the config, handling potential double-stringification
+            let users;
+            try {
+                // First attempt: try parsing as is
+                users = JSON.parse(usersConfig);
+            } catch (e) {
+                // Second attempt: if it's a string that looks like JSON, try parsing it again
+                if (typeof usersConfig === 'string' && 
+                    (usersConfig.startsWith('"') || usersConfig.startsWith('{'))) {
+                    users = JSON.parse(JSON.parse(usersConfig));
+                } else {
+                    throw e;
+                }
+            }
+
             console.log('Parsed users:', users);
             console.log('Users type:', typeof users);
             console.log('Is object?', typeof users === 'object');

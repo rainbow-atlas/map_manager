@@ -40,7 +40,7 @@ jobs:
           VITE_GOOGLE_PRIVATE_KEY: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY }}
           VITE_GOOGLE_PRIVATE_KEY_ID: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY_ID }}
           VITE_GOOGLE_SHEET_ID: ${{ secrets.VITE_GOOGLE_SHEET_ID }}
-          VITE_USERS_CONFIG: ${{ fromJSON(secrets.VITE_USERS_CONFIG) }}
+          VITE_USERS_CONFIG: ${{ secrets.VITE_USERS_CONFIG }}
           VITE_GOOGLE_TYPE: ${{ secrets.VITE_GOOGLE_TYPE }}
           VITE_GOOGLE_PROJECT_ID: ${{ secrets.VITE_GOOGLE_PROJECT_ID }}
           VITE_GOOGLE_AUTH_URI: ${{ secrets.VITE_GOOGLE_AUTH_URI }}
