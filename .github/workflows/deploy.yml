@@ -48,6 +48,7 @@ jobs:
           VITE_GOOGLE_AUTH_PROVIDER_X509_CERT_URL: ${{ secrets.VITE_GOOGLE_AUTH_PROVIDER_X509_CERT_URL }}
           VITE_GOOGLE_CLIENT_X509_CERT_URL: ${{ secrets.VITE_GOOGLE_CLIENT_X509_CERT_URL }}
           VITE_GOOGLE_UNIVERSE_DOMAIN: ${{ secrets.VITE_GOOGLE_UNIVERSE_DOMAIN }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: npm run build
       
       - name: Setup Pages
