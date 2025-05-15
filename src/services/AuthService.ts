@@ -14,7 +14,7 @@ export class AuthService {
 
     static {
         // Load users from environment variables
-        const usersConfig = import.meta.env.VITE_USERS_CONFIG;
+        let usersConfig = import.meta.env.VITE_USERS_CONFIG;
         if (!usersConfig) {
             throw new Error('VITE_USERS_CONFIG environment variable is not set');
         }
@@ -24,6 +24,12 @@ export class AuthService {
         console.log('Config length:', usersConfig.length);
         console.log('First 10 chars:', usersConfig.substring(0, 10));
         console.log('Last 10 chars:', usersConfig.substring(usersConfig.length - 10));
+
+        // Special case: if the string starts with "VITE_USERS_CONFIG=", remove that prefix
+        if (typeof usersConfig === 'string' && usersConfig.startsWith('VITE_USERS_CONFIG=')) {
+            usersConfig = usersConfig.substring('VITE_USERS_CONFIG='.length);
+            console.log('Extracted value from key-value pair:', usersConfig);
+        }
 
         try {
             // Try to parse the config, handling potential double-stringification
