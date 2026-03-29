@@ -9,75 +9,53 @@ A web application for managing and visualizing location data with Google Maps in
    npm install
    ```
 
-2. Create a `.env` file in the project root with the following structure:
+2. Create a Supabase project at [supabase.com](https://supabase.com) and run the schema migration:
+   - Go to your project → SQL Editor
+   - Run the SQL in `supabase/migrations/20240318000000_create_schema.sql`
+
+3. Create a `.env` file in the project root (see `.env.example` for structure):
    ```env
-   # Google Sheets Configuration
-   VITE_GOOGLE_CLIENT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
-   VITE_GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYour Private Key Here\n-----END PRIVATE KEY-----"
-   VITE_GOOGLE_PRIVATE_KEY_ID=your-private-key-id
-   VITE_GOOGLE_SHEET_ID=your-google-sheet-id
+   # Supabase (required - get from Project Settings → API)
+   VITE_SUPABASE_URL=https://your-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+
+   # Google Maps (optional - for address autocomplete)
+   VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
 
    # Users Configuration
-   VITE_USERS_CONFIG='{
-     "admin": {
-       "password": "your-admin-password",
-       "role": "admin"
-     },
-     "editor": {
-       "password": "your-editor-password",
-       "role": "editor"
-     },
-     "viewer": {
-       "password": "your-viewer-password",
-       "role": "viewer"
-     },
-     "guest": {
-       "password": "your-guest-password",
-       "role": "guest"
-     }
-   }'
+   VITE_USERS_CONFIG='{"admin":{"password":"your-password","role":"admin"},"editor":{"password":"your-password","role":"editor"}}'
    ```
 
-3. Start the development server:
+4. Start the development server:
    ```bash
    npm run dev
    ```
 
+## Migrating Data from Google Sheets (Optional)
+
+If you have existing data in a Google Sheet:
+
+1. Export the sheet: File → Download → Comma-separated values (.csv)
+2. Run the migration script:
+   ```bash
+   npm run migrate -- path/to/Sheet1.csv
+   ```
+
+Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set in `.env` before running.
+
 ## Managing GitHub Secrets
 
-The application requires several environment variables to be set as GitHub Secrets for deployment. To set these up:
+The application requires environment variables to be set as GitHub Secrets for deployment:
 
-1. Install GitHub CLI:
-   ```bash
-   # On macOS with Homebrew
-   brew install gh
-   ```
+1. Install GitHub CLI: `brew install gh`
+2. Login: `gh auth login`
+3. Run: `./scripts/set-github-secrets.sh`
 
-2. Login to GitHub CLI:
-   ```bash
-   gh auth login
-   ```
-
-3. Run the secrets setup script:
-   ```bash
-   ./scripts/set-github-secrets.sh
-   ```
-
-This script will:
-- Read your local `.env` file
-- Set each environment variable as a GitHub Secret
-- Make the secrets available to your GitHub Pages deployment
-
-Note: For GitHub Pages deployment, you need to set these secrets in your repository's settings:
-1. Go to your repository on GitHub
-2. Click on "Settings"
-3. Click on "Secrets and variables" → "Actions"
-4. Add the following secrets:
-   - `VITE_GOOGLE_CLIENT_EMAIL`
-   - `VITE_GOOGLE_PRIVATE_KEY`
-   - `VITE_GOOGLE_PRIVATE_KEY_ID`
-   - `VITE_GOOGLE_SHEET_ID`
-   - `VITE_USERS_CONFIG`
+Add these secrets in GitHub → Settings → Secrets and variables → Actions (or run `./scripts/set-github-secrets.sh` to sync from `.env`):
+- `VITE_SUPABASE_URL` (required for deploy)
+- `VITE_SUPABASE_ANON_KEY` (required for deploy)
+- `VITE_GOOGLE_MAPS_API_KEY` (optional — address autocomplete)
+- `VITE_QUEER_MAP_EMBED_URL` (optional — public map URL for iframe builder + login link; app falls back to GitHub Pages if unset)
 
 ## Available Scripts
 
@@ -85,15 +63,14 @@ Note: For GitHub Pages deployment, you need to set these secrets in your reposit
 - `npm run build` - Build for production
 - `npm run lint` - Run ESLint
 - `npm run preview` - Preview production build
+- `npm run migrate -- <path/to/export.csv>` - Migrate data from a CSV (exported from Google Sheets) into Supabase
 
 ## User Roles
 
-The application supports four user roles with different permission levels:
+The application supports two roles:
 
-1. **Admin** - Full access to all features
-2. **Editor** - Can edit content with some restrictions
-3. **Viewer** - Can view content with limited editing capabilities
-4. **Guest** - Most restricted access
+1. **Admin** - Full access (including user management in the app)
+2. **Editor** - Can edit map content
 
 ## Technologies Used
 
@@ -102,7 +79,7 @@ The application supports four user roles with different permission levels:
 - Vite
 - Material-UI
 - Google Maps API
-- Google Sheets API
+- Supabase (PostgreSQL)
 
 ## Features
 
@@ -112,7 +89,7 @@ The application supports four user roles with different permission levels:
 - Delete locations
 - Import locations from CSV
 - Export locations to CSV
-- Data persistence using local storage
+- Data persistence using Supabase
 - Responsive design
 
 ## Deployment

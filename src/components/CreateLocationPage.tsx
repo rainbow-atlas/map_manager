@@ -1,19 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-    Box,
-    Typography,
-    Paper,
-    Alert,
-    Button,
-} from '@mui/material';
 import { LocationService } from '../services/LocationService';
 import LocationForm from './LocationForm';
 import { Location } from '../types/Location';
-import {
-    SaveOutlined,
-    ArrowBackOutlined,
-} from '@mui/icons-material';
 
 export default function CreateLocationPage() {
     const navigate = useNavigate();
@@ -24,46 +13,29 @@ export default function CreateLocationPage() {
             await LocationService.addLocation(location);
             navigate('/locations');
         } catch (err) {
-            setError('Failed to create location. Please try again.');
-            console.error('Error creating location:', err);
+            setError('Failed to create location.');
+            console.error(err);
         }
     };
 
     return (
-        <Box>
-            <Typography variant="h4" component="h1" gutterBottom>
-                Create New Location
-            </Typography>
-
+        <div className="flex flex-col h-full">
             {error && (
-                <Alert severity="error" sx={{ mb: 3 }}>
+                <div className="mb-4 px-3 py-2 text-xs bg-red-100 text-red-800 border border-red-200 rounded-lg">
                     {error}
-                </Alert>
+                </div>
             )}
-
-            <Paper sx={{ mt: 2, p: 3 }}>
-                <LocationForm
-                    initialData={null}
-                    onSave={handleSave}
-                    onCancel={() => navigate('/locations')}
-                />
-            </Paper>
-
-            <Button
-                variant="outlined"
-                startIcon={<ArrowBackOutlined />}
-                onClick={() => navigate('/locations')}
-            >
-                Back to Locations
-            </Button>
-
-            <Button
-                type="submit"
-                variant="contained"
-                startIcon={<SaveOutlined />}
-            >
-                Save Location
-            </Button>
-        </Box>
+            <div className="flex-1 flex items-start justify-center overflow-auto">
+                <div className="w-full max-w-3xl">
+                    <div className="border border-black/10 bg-white rounded-2xl shadow-[0_8px_24px_rgba(15,23,42,0.06)] p-5 sm:p-6 md:p-7">
+                        <LocationForm
+                            initialData={null}
+                            onSave={handleSave}
+                            onCancel={() => navigate('/locations')}
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
     );
-} 
+}

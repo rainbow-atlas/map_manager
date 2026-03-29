@@ -1,25 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Box,
-    Card,
-    Grid,
-    Typography,
-    CircularProgress,
-    IconButton,
-    Tooltip,
-    useTheme,
-    Paper,
-    Button,
-} from '@mui/material';
-import {
-    LocationOn,
-    Category,
-    LocalOffer as TagIcon,
-    Update as UpdateIcon,
-    Warning,
-    AddOutlined,
-} from '@mui/icons-material';
-import {
     BarChart,
     Bar,
     XAxis,
@@ -32,97 +12,77 @@ import {
     Cell,
     LineChart,
     Line,
+    Legend,
 } from 'recharts';
+import {
+    MapPinIcon,
+    TagIcon,
+    ChartBarIcon,
+    ExclamationTriangleIcon,
+} from '@heroicons/react/24/outline';
+import { PlusIcon, ArrowPathIcon } from '@heroicons/react/24/solid';
 import { LocationService } from '../services/LocationService';
 import { Location } from '../types/Location';
-import { pastelColors } from '../utils/colors';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
-interface StatCardProps {
-    title: string;
-    value: string | number;
-    icon: React.ReactNode;
-    color: string;
-}
+const COLORS = ['#9B8ACF', '#FFB5DA', '#B8A9E1', '#FFC8E6', '#7B6CB8'];
 
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => (
-    <Card
-        sx={{
-            p: 3,
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            borderRadius: 3,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: 'background.paper',
-            boxShadow: '0 2px 12px rgba(0, 0, 0, 0.05)',
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-                transform: 'translateY(-2px)',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-            },
-        }}
-    >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500 }}>
-                {title}
-            </Typography>
-            <Box sx={{ 
-                p: 1, 
-                borderRadius: 2,
-                bgcolor: color + '20',
-                color: 'primary.main',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 40,
-                height: 40,
-            }}>
-                {icon}
-            </Box>
-        </Box>
-        <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {value}
-        </Typography>
-    </Card>
-);
+const LOAD_TIMEOUT_MS = 15000;
 
 export default function HomePage() {
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const theme = useTheme();
+    const cached = LocationService.getAllLocations();
+    const [locations, setLocations] = useState<Location[]>(cached);
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const navigate = useNavigate();
 
     useEffect(() => {
+        let cancelled = false;
+        const timeout = setTimeout(() => {
+            if (!cancelled && isLoading) {
+                setLoadError('Load timed out');
+                setIsLoading(false);
+            }
+        }, LOAD_TIMEOUT_MS);
+
+        const loadData = async () => {
+            try {
+                setLoadError(null);
+                await LocationService.refreshData();
+                if (!cancelled) {
+                    setLocations(LocationService.getAllLocations());
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setLoadError(err instanceof Error ? err.message : 'Failed to load data');
+                    setLocations(LocationService.getAllLocations());
+                }
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        };
+
         loadData();
+        return () => {
+            cancelled = true;
+            clearTimeout(timeout);
+        };
     }, []);
 
-    const loadData = async () => {
-        try {
-            await LocationService.refreshData();
-            setLocations(LocationService.getAllLocations());
-        } finally {
-            setIsLoading(false);
-        }
+    const handleRetry = () => {
+        setLoadError(null);
+        setIsLoading(true);
+        LocationService.refreshData()
+            .then(() => setLocations(LocationService.getAllLocations()))
+            .catch((err) => setLoadError(err instanceof Error ? err.message : 'Failed to load'))
+            .finally(() => setIsLoading(false));
     };
 
-    if (isLoading) {
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-
-    // Calculate statistics
     const totalLocations = locations.length;
-    const uniqueCategories = new Set(locations.map(loc => loc.Category)).size;
+    const uniqueCategories = new Set(locations.flatMap((loc) => loc.Categories ?? [])).size;
     const uniqueTags = new Set(
         locations.flatMap(loc => loc.Tags.split(',').map(tag => tag.trim())).filter(Boolean)
     ).size;
-
-    // Calculate locations needing update (older than 90 days)
     const needsUpdate = locations.filter(loc => {
         const lastChecked = new Date(loc['Last Checked']);
         const ninetyDaysAgo = new Date();
@@ -130,20 +90,18 @@ export default function HomePage() {
         return lastChecked < ninetyDaysAgo;
     }).length;
 
-    // Prepare data for category distribution chart
     const categoryData = Array.from(
         locations.reduce((acc, loc) => {
-            acc.set(loc.Category, (acc.get(loc.Category) || 0) + 1);
+            for (const c of loc.Categories ?? []) {
+                acc.set(c, (acc.get(c) || 0) + 1);
+            }
             return acc;
         }, new Map<string, number>())
     ).map(([name, value]) => ({ name, value }));
 
-    // Prepare data for tags distribution
     const tagData = Array.from(
-        locations.flatMap(loc => 
-            loc.Tags.split(',')
-                .map(tag => tag.trim())
-                .filter(Boolean)
+        locations.flatMap(loc =>
+            loc.Tags.split(',').map(tag => tag.trim()).filter(Boolean)
         ).reduce((acc, tag) => {
             acc.set(tag, (acc.get(tag) || 0) + 1);
             return acc;
@@ -151,14 +109,13 @@ export default function HomePage() {
     )
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
-        .slice(0, 10); // Only show top 10 tags
+        .slice(0, 8);
 
-    // Prepare data for locations over time
     const timelineData = Array.from(
         locations.reduce((acc, loc) => {
-            const month = new Date(loc['Last Checked']).toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'short'
+            const month = new Date(loc['Last Checked']).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
             });
             acc.set(month, (acc.get(month) || 0) + 1);
             return acc;
@@ -171,280 +128,201 @@ export default function HomePage() {
             return dateA.getTime() - dateB.getTime();
         });
 
-    const CHART_COLORS = [
-        theme.palette.primary.light,
-        theme.palette.secondary.light,
-        pastelColors.pink,
-        pastelColors.yellow,
-        pastelColors.lavender,
-    ];
+    const cardBase = 'bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.08)]';
+    const tileBase = 'p-4 flex items-center gap-2.5 h-full min-h-[72px]';
+
+    const statCardInteractive =
+        'transition-colors hover:bg-gray-50/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9B8ACF]/35 focus-visible:ring-offset-2';
+
+    const StatCard = ({
+        label,
+        value,
+        icon,
+        to,
+    }: {
+        label: string;
+        value: number;
+        icon: React.ReactNode;
+        to: string;
+    }) => (
+        <Link to={to} className={`${cardBase} ${tileBase} w-full no-underline text-inherit ${statCardInteractive}`}>
+            <div className="text-[#9B8ACF] shrink-0 flex-none w-8 h-8 flex items-center justify-center rounded-lg bg-[#9B8ACF]/10">
+                {icon}
+            </div>
+            <div className="min-w-0 flex flex-col justify-center">
+                <div className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">{label}</div>
+                <div className="text-lg font-semibold truncate text-gray-900">{value}</div>
+            </div>
+        </Link>
+    );
 
     return (
-        <Box sx={{ 
-            height: 'calc(100vh - 96px)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            p: 3,
-        }}>
-            {/* Header Section */}
-            <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                mb: 3,
-            }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                        Dashboard Overview
-                    </Typography>
-                    <Tooltip title="Refresh data">
-                        <IconButton 
-                            onClick={loadData}
-                            size="small"
-                            sx={{ 
-                                bgcolor: theme.palette.primary.light + '20',
-                                '&:hover': { 
-                                    bgcolor: theme.palette.primary.light + '40',
-                                    transform: 'rotate(180deg)',
-                                },
-                                transition: 'transform 0.3s ease-in-out',
-                            }}
-                        >
-                            <UpdateIcon />
-                        </IconButton>
-                    </Tooltip>
-                </Box>
-                <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={<AddOutlined />}
-                    onClick={() => navigate('/create')}
-                    sx={{
-                        px: 4,
-                        py: 1.5,
-                        borderRadius: 2,
-                        backgroundColor: theme.palette.primary.main,
-                        '&:hover': {
-                            backgroundColor: theme.palette.primary.dark,
-                            transform: 'translateY(-2px)',
-                            boxShadow: '0 8px 16px rgba(0,0,0,0.1)',
-                        },
-                        transition: 'all 0.2s',
-                    }}
-                >
-                    Create New Entry
-                </Button>
-            </Box>
+        <div className="h-full flex flex-col gap-3 min-h-0">
+            {loadError && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 shrink-0">
+                    <span>{loadError}</span>
+                    <button onClick={handleRetry} className="px-2 py-1 text-xs font-medium bg-red-100 hover:bg-red-200 rounded">
+                        Retry
+                    </button>
+                </div>
+            )}
+            <div className="flex-1 grid grid-cols-12 grid-rows-[minmax(72px,auto)_1fr_1fr] gap-3 min-h-0">
+            {/* Top row: 6 cards equally spaced, each col-span-2 */}
+            <div className="col-span-2">
+                <StatCard
+                    label="Locations"
+                    value={totalLocations}
+                    icon={<MapPinIcon className="w-4 h-4" />}
+                    to="/locations"
+                />
+            </div>
+            <div className="col-span-2">
+                <StatCard
+                    label="Categories"
+                    value={uniqueCategories}
+                    icon={<ChartBarIcon className="w-4 h-4" />}
+                    to="/categories"
+                />
+            </div>
+            <div className="col-span-2">
+                <StatCard label="Tags" value={uniqueTags} icon={<TagIcon className="w-4 h-4" />} to="/tags" />
+            </div>
+            <div className="col-span-2">
+                <StatCard
+                    label="Needs update"
+                    value={needsUpdate}
+                    icon={<ExclamationTriangleIcon className="w-4 h-4" />}
+                    to="/locations?stale=90"
+                />
+            </div>
+            <button
+                onClick={handleRetry}
+                className={`col-span-2 rounded-xl ${tileBase} justify-center bg-[#FFB5DA] hover:bg-[#FF94C7] text-gray-900 font-medium transition-colors border-0 shadow-[0_1px_3px_rgba(0,0,0,0.08)]`}
+            >
+                <ArrowPathIcon className="w-5 h-5 shrink-0" />
+                <span className="text-sm">Refresh</span>
+            </button>
+            <button
+                onClick={() => navigate('/create')}
+                className={`col-span-2 rounded-xl ${tileBase} justify-center bg-[#9B8ACF] hover:bg-[#7B6CB8] text-gray-900 font-medium transition-colors border-0 shadow-[0_1px_3px_rgba(0,0,0,0.08)]`}
+            >
+                <PlusIcon className="w-5 h-5 shrink-0" />
+                <span className="text-sm">Add location</span>
+            </button>
 
-            {/* Main Grid Container */}
-            <Grid container spacing={2} sx={{ flexGrow: 1, overflow: 'auto' }}>
-                {/* Stats Cards Row */}
-                <Grid item xs={12}>
-                    <Grid container spacing={2}>
-                        <Grid item xs={3}>
-                            <StatCard
-                                title="Total Locations"
-                                value={totalLocations}
-                                icon={<LocationOn />}
-                                color={pastelColors.blue}
-                            />
-                        </Grid>
-                        <Grid item xs={3}>
-                            <StatCard
-                                title="Categories"
-                                value={uniqueCategories}
-                                icon={<Category />}
-                                color={pastelColors.purple}
-                            />
-                        </Grid>
-                        <Grid item xs={3}>
-                            <StatCard
-                                title="Unique Tags"
-                                value={uniqueTags}
-                                icon={<TagIcon />}
-                                color={pastelColors.lavender}
-                            />
-                        </Grid>
-                        <Grid item xs={3}>
-                            <StatCard
-                                title="Needs Update"
-                                value={needsUpdate}
-                                icon={<Warning />}
-                                color={pastelColors.pink}
-                            />
-                        </Grid>
-                    </Grid>
-                </Grid>
-
-                {/* Charts Row */}
-                <Grid item xs={12}>
-                    <Grid container spacing={2}>
-                        {/* Timeline Chart */}
-                        <Grid item xs={8}>
-                            <Paper 
-                                elevation={0}
-                                sx={{ 
-                                    p: 3,
-                                    height: 400,
-                                    borderRadius: 3,
-                                    border: '1px solid',
-                                    borderColor: 'divider',
-                                    bgcolor: 'background.paper',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                }}
+            {/* Charts row: Locations by month (col-span-8) + Categories (col-span-4) */}
+            <div className="col-span-12 md:col-span-8 flex flex-col min-h-0 overflow-hidden">
+                <div className={`${cardBase} p-4 flex flex-col flex-1 min-h-0 h-full`}>
+                    <div className="flex items-baseline justify-between mb-2 shrink-0">
+                        <div className="text-sm font-semibold text-gray-800">Locations by month</div>
+                        <div className="text-[11px] text-gray-500">
+                            Last {Math.min(timelineData.length, 12)} months
+                        </div>
+                    </div>
+                    <div className="flex-1 min-h-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart
+                                data={timelineData}
+                                margin={{ top: 6, right: 12, left: 0, bottom: 0 }}
                             >
-                                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                                    Locations Timeline
-                                </Typography>
-                                <Box sx={{ flexGrow: 1 }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={timelineData}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                            <XAxis 
-                                                dataKey="name" 
-                                                tick={{ fontSize: 12 }} 
-                                                stroke="#666"
-                                            />
-                                            <YAxis 
-                                                tick={{ fontSize: 12 }}
-                                                stroke="#666"
-                                            />
-                                            <RechartsTooltip 
-                                                contentStyle={{ 
-                                                    background: 'rgba(255, 255, 255, 0.95)',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                                }}
-                                            />
-                                            <Line 
-                                                type="monotone" 
-                                                dataKey="value" 
-                                                stroke={theme.palette.primary.main}
-                                                strokeWidth={3}
-                                                dot={{ fill: theme.palette.primary.main }}
-                                                activeDot={{ r: 6 }}
-                                            />
-                                        </LineChart>
-                                    </ResponsiveContainer>
-                                </Box>
-                            </Paper>
-                        </Grid>
-
-                        {/* Right Charts Column */}
-                        <Grid item xs={4}>
-                            <Box sx={{ 
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 2
-                            }}>
-                                {/* Category Distribution */}
-                                <Paper 
-                                    elevation={0}
-                                    sx={{ 
-                                        p: 3,
-                                        flex: 1,
-                                        borderRadius: 3,
-                                        border: '1px solid',
-                                        borderColor: 'divider',
-                                        bgcolor: 'background.paper',
-                                        display: 'flex',
-                                        flexDirection: 'column',
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                                <XAxis
+                                    dataKey="name"
+                                    tick={{ fontSize: 10, fill: '#6b7280' }}
+                                    stroke="#e5e7eb"
+                                    tickLine={false}
+                                    axisLine={false}
+                                    padding={{ left: 4, right: 4 }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: '#6b7280' }}
+                                    stroke="#e5e7eb"
+                                    width={28}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    allowDecimals={false}
+                                />
+                                <RechartsTooltip
+                                    contentStyle={{
+                                        fontSize: '11px',
+                                        padding: '6px 8px',
+                                        borderRadius: '8px',
+                                        borderColor: '#e5e7eb',
                                     }}
+                                    labelStyle={{ fontWeight: 500, marginBottom: 2 }}
+                                    formatter={(value: number) => [`${value} locations`, 'Total']}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="value"
+                                    name="Locations"
+                                    stroke="#9B8ACF"
+                                    strokeWidth={2.2}
+                                    dot={{ r: 2.5, strokeWidth: 0, fill: '#7B6CB8' }}
+                                    activeDot={{ r: 4, strokeWidth: 0, fill: '#7B6CB8' }}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+            <div className="col-span-12 md:col-span-4 flex flex-col min-h-0 overflow-hidden">
+                <div className={`${cardBase} p-4 flex flex-col flex-1 min-h-0 h-full`}>
+                    <div className="text-sm font-semibold text-gray-800 mb-1 shrink-0">Categories</div>
+                    <div className="flex-1 min-h-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={categoryData}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    cx="38%"
+                                    cy="50%"
+                                    outerRadius="65%"
+                                    label={{ fontSize: 9 }}
                                 >
-                                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                                        Category Distribution
-                                    </Typography>
-                                    <Box sx={{ flexGrow: 1 }}>
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                                <Pie
-                                                    data={categoryData}
-                                                    dataKey="value"
-                                                    nameKey="name"
-                                                    cx="50%"
-                                                    cy="50%"
-                                                    outerRadius="80%"
-                                                    label={{ fontSize: 12 }}
-                                                >
-                                                    {categoryData.map((entry, index) => (
-                                                        <Cell 
-                                                            key={`cell-${index}`} 
-                                                            fill={CHART_COLORS[index % CHART_COLORS.length]} 
-                                                        />
-                                                    ))}
-                                                </Pie>
-                                                <RechartsTooltip 
-                                                    contentStyle={{ 
-                                                        background: 'rgba(255, 255, 255, 0.95)',
-                                                        border: 'none',
-                                                        borderRadius: '8px',
-                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                                    }}
-                                                />
-                                            </PieChart>
-                                        </ResponsiveContainer>
-                                    </Box>
-                                </Paper>
-
-                                {/* Top Tags */}
-                                <Paper 
-                                    elevation={0}
-                                    sx={{ 
-                                        p: 3,
-                                        flex: 1,
-                                        borderRadius: 3,
-                                        border: '1px solid',
-                                        borderColor: 'divider',
-                                        bgcolor: 'background.paper',
-                                        display: 'flex',
-                                        flexDirection: 'column',
+                                    {categoryData.map((_, i) => (
+                                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Legend
+                                    layout="vertical"
+                                    align="right"
+                                    verticalAlign="middle"
+                                    iconType="circle"
+                                    iconSize={10}
+                                    wrapperStyle={{
+                                        fontSize: '12px',
+                                        paddingLeft: 10,
+                                        lineHeight: '1.4',
                                     }}
-                                >
-                                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                                        Top Tags
-                                    </Typography>
-                                    <Box sx={{ flexGrow: 1 }}>
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={tagData} layout="vertical" barSize={20}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                                <XAxis 
-                                                    type="number" 
-                                                    tick={{ fontSize: 12 }}
-                                                    stroke="#666"
-                                                />
-                                                <YAxis 
-                                                    dataKey="name" 
-                                                    type="category" 
-                                                    tick={{ fontSize: 12 }}
-                                                    stroke="#666"
-                                                    width={100}
-                                                />
-                                                <RechartsTooltip 
-                                                    contentStyle={{ 
-                                                        background: 'rgba(255, 255, 255, 0.95)',
-                                                        border: 'none',
-                                                        borderRadius: '8px',
-                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                                    }}
-                                                />
-                                                <Bar 
-                                                    dataKey="value" 
-                                                    fill={theme.palette.primary.light}
-                                                    radius={[0, 4, 4, 0]}
-                                                />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </Box>
-                                </Paper>
-                            </Box>
-                        </Grid>
-                    </Grid>
-                </Grid>
-            </Grid>
-        </Box>
+                                />
+                                <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 6px' }} />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom row: Top tags */}
+            <div className="col-span-12 flex flex-col min-h-0 overflow-hidden">
+                <div className={`${cardBase} p-4 flex flex-col flex-1 min-h-0 h-full`}>
+                    <div className="text-sm font-semibold text-gray-800 mb-1 shrink-0">Top tags</div>
+                    <div className="flex-1 min-h-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={tagData} layout="vertical" margin={{ left: 0, right: 4 }} barSize={10}>
+                                <CartesianGrid strokeDasharray="2 2" stroke="#e5e7eb" horizontal={false} />
+                                <XAxis type="number" tick={{ fontSize: 9 }} />
+                                <YAxis dataKey="name" type="category" tick={{ fontSize: 9 }} width={68} />
+                                <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 6px' }} />
+                                <Legend layout="horizontal" align="center" iconType="rect" iconSize={6} wrapperStyle={{ fontSize: '10px' }} />
+                                <Bar dataKey="value" name="Count" fill="#9B8ACF" radius={[0, 1, 1, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
     );
-} 
+}

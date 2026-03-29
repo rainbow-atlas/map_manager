@@ -1,4 +1,6 @@
 #!/bin/bash
+# Push all variables from .env to GitHub Actions repository secrets.
+# Run from the repo root (where .env lives): ./scripts/set-github-secrets.sh
 
 # Check if gh CLI is installed
 if ! command -v gh &> /dev/null; then

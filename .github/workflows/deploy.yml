@@ -26,29 +26,14 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      - name: Debug Users Config
-        run: |
-          echo "Length of VITE_USERS_CONFIG: ${#VITE_USERS_CONFIG}"
-          echo "First character: ${VITE_USERS_CONFIG:0:1}"
-          echo "Last character: ${VITE_USERS_CONFIG: -1}"
-        env:
-          VITE_USERS_CONFIG: ${{ secrets.VITE_USERS_CONFIG }}
-      
+      # Vite inlines env at build time. Add matching names under repo → Settings → Secrets → Actions.
+      # Optional secrets may be omitted; the app falls back to defaults for map URLs when unset.
       - name: Build
         env:
-          VITE_GOOGLE_CLIENT_EMAIL: ${{ secrets.VITE_GOOGLE_CLIENT_EMAIL }}
-          VITE_GOOGLE_PRIVATE_KEY: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY }}
-          VITE_GOOGLE_PRIVATE_KEY_ID: ${{ secrets.VITE_GOOGLE_PRIVATE_KEY_ID }}
-          VITE_GOOGLE_SHEET_ID: ${{ secrets.VITE_GOOGLE_SHEET_ID }}
-          VITE_USERS_CONFIG: ${{ secrets.VITE_USERS_CONFIG }}
-          VITE_GOOGLE_TYPE: ${{ secrets.VITE_GOOGLE_TYPE }}
-          VITE_GOOGLE_PROJECT_ID: ${{ secrets.VITE_GOOGLE_PROJECT_ID }}
-          VITE_GOOGLE_AUTH_URI: ${{ secrets.VITE_GOOGLE_AUTH_URI }}
-          VITE_GOOGLE_TOKEN_URI: ${{ secrets.VITE_GOOGLE_TOKEN_URI }}
-          VITE_GOOGLE_AUTH_PROVIDER_X509_CERT_URL: ${{ secrets.VITE_GOOGLE_AUTH_PROVIDER_X509_CERT_URL }}
-          VITE_GOOGLE_CLIENT_X509_CERT_URL: ${{ secrets.VITE_GOOGLE_CLIENT_X509_CERT_URL }}
-          VITE_GOOGLE_UNIVERSE_DOMAIN: ${{ secrets.VITE_GOOGLE_UNIVERSE_DOMAIN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          VITE_QUEER_MAP_EMBED_URL: ${{ secrets.VITE_QUEER_MAP_EMBED_URL }}
         run: npm run build
       
       - name: Setup Pages

@@ -1,23 +1,6 @@
 import React, { useState } from 'react';
-import {
-    Box,
-    TextField,
-    Button,
-    Typography,
-    Alert,
-    Container,
-    InputAdornment,
-    IconButton,
-    Paper,
-    useTheme,
-} from '@mui/material';
-import {
-    VisibilityOutlined,
-    VisibilityOffOutlined,
-    LoginOutlined,
-    PersonOutlineOutlined,
-    LockOutlined,
-} from '@mui/icons-material';
+import { ArrowTopRightOnSquareIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
+import { DEFAULT_QUEER_MAP_BASE_URL } from '../lib/publicMapUrls';
 import { AuthService } from '../services/AuthService';
 import logo from '../assets/logo.svg';
 
@@ -30,207 +13,132 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const theme = useTheme();
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (event: React.FormEvent) => {
-        event.preventDefault();
-        if (AuthService.login(username, password)) {
-            onLoginSuccess();
-        } else {
-            setError('Invalid username or password');
+    const publicMapUrl = (
+        import.meta.env.VITE_QUEER_MAP_EMBED_URL || DEFAULT_QUEER_MAP_BASE_URL
+    ).trim();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+            const result = await AuthService.login(username, password);
+            setLoading(false);
+            if (result.success) {
+                onLoginSuccess();
+            } else {
+                setError(result.error ?? 'Invalid username or password');
+            }
+        } catch (err) {
+            setLoading(false);
+            setError('Login failed');
         }
     };
 
+    const inputClass =
+        'w-full px-3.5 py-2.5 text-sm rounded-xl border border-black/10 bg-white/80 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] placeholder:text-black/35 focus:border-[#9B8ACF] focus:outline-none focus:ring-2 focus:ring-[#9B8ACF]/25 transition-shadow';
+
     return (
-        <Box
-            sx={{
-                minHeight: '100vh',
-                width: '100vw',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'linear-gradient(135deg, #F8E8FF, #E8ECFF, #FFE8F3)',
-                position: 'fixed',
-                top: 0,
-                left: 0,
-            }}
-        >
-            <Container maxWidth="sm" sx={{ margin: 0 }}>
-                <Paper
-                    elevation={0}
-                    sx={{
-                        borderRadius: 4,
-                        overflow: 'hidden',
-                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                    }}
-                >
-                    <Box
-                        sx={{
-                            p: 6,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                        }}
-                    >
-                        <Box
-                            component="img"
-                            src={logo}
-                            alt="Rainbow Atlas Logo"
-                            sx={{
-                                width: 160,
-                                height: 160,
-                                mb: 4,
-                                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1))',
-                            }}
-                        />
-                        <Typography
-                            variant="h3"
-                            component="h1"
-                            gutterBottom
-                            sx={{
-                                fontWeight: 700,
-                                textAlign: 'center',
-                                mb: 4,
-                                letterSpacing: '-0.5px',
-                            }}
-                        >
-                            Rainbow Atlas
-                        </Typography>
+        <div className="min-h-screen w-full flex flex-col items-center justify-center px-4 py-12 relative overflow-hidden bg-gradient-to-br from-[#F0E8FF] via-[#FFF5FB] to-[#E8F4FF]">
+            <div
+                className="pointer-events-none absolute inset-0 opacity-[0.45]"
+                style={{
+                    backgroundImage:
+                        'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(155, 138, 207, 0.35), transparent), radial-gradient(ellipse 60% 40% at 100% 50%, rgba(255, 181, 218, 0.25), transparent), radial-gradient(ellipse 50% 30% at 0% 80%, rgba(123, 108, 184, 0.12), transparent)',
+                }}
+            />
+            <div className="relative w-full max-w-[400px]">
+                <div className="rounded-2xl border border-white/70 bg-white/75 backdrop-blur-md shadow-[0_24px_80px_-12px_rgba(123,108,184,0.25),0_0_0_1px_rgba(255,255,255,0.8)_inset] p-8 sm:p-10">
+                    <div className="flex flex-col items-center text-center mb-8">
+                        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-white to-[#F5F0FF] shadow-[0_8px_24px_-8px_rgba(123,108,184,0.4)] ring-1 ring-black/[0.06]">
+                            <img src={logo} alt="" className="h-10 w-10" aria-hidden />
+                        </div>
+                        <h1 className="text-[1.35rem] font-semibold tracking-tight text-[#1a1528]">
+                            queer_map
+                        </h1>
+                        <p className="mt-1.5 text-sm text-black/50">Log in to manage locations and content</p>
+                    </div>
 
-                        {error && (
-                            <Alert
-                                severity="error"
-                                sx={{
-                                    width: '100%',
-                                    mb: 3,
-                                    borderRadius: 2,
-                                }}
-                            >
-                                {error}
-                            </Alert>
-                        )}
-
-                        <Box
-                            component="form"
-                            onSubmit={handleSubmit}
-                            sx={{
-                                width: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 3,
-                            }}
+                    {error && (
+                        <div
+                            role="alert"
+                            className="mb-6 rounded-xl border border-red-200/80 bg-red-50/90 px-3.5 py-2.5 text-sm text-red-800"
                         >
-                            <TextField
+                            {error}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                        <div>
+                            <label htmlFor="login-username" className="sr-only">
+                                Username
+                            </label>
+                            <input
+                                id="login-username"
+                                type="text"
+                                autoComplete="username"
                                 required
-                                fullWidth
-                                label="Username"
+                                placeholder="Username"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                autoComplete="username"
-                                autoFocus
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PersonOutlineOutlined sx={{ color: theme.palette.primary.main }} />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                                sx={{
-                                    '& .MuiOutlinedInput-root': {
-                                        borderRadius: 2,
-                                        bgcolor: 'background.paper',
-                                    },
-                                }}
+                                className={inputClass}
                             />
+                        </div>
+                        <div>
+                            <label htmlFor="login-password" className="sr-only">
+                                Password
+                            </label>
+                            <div className="relative">
+                                <input
+                                    id="login-password"
+                                    type={showPassword ? 'text' : 'password'}
+                                    autoComplete="current-password"
+                                    required
+                                    placeholder="Password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className={`${inputClass} pr-14`}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-black/45 hover:bg-black/[0.06] hover:text-[#7B6CB8] transition-colors"
+                                >
+                                    {showPassword ? (
+                                        <EyeSlashIcon className="h-5 w-5" aria-hidden />
+                                    ) : (
+                                        <EyeIcon className="h-5 w-5" aria-hidden />
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="mt-1 w-full rounded-xl py-3 text-sm font-semibold text-white bg-[#9B8ACF] shadow-[0_4px_14px_-4px_rgba(123,108,184,0.45)] hover:bg-[#7B6CB8] focus:outline-none focus:ring-2 focus:ring-[#9B8ACF]/50 focus:ring-offset-2 disabled:opacity-55 disabled:pointer-events-none transition-colors"
+                        >
+                            {loading ? 'Logging in…' : 'Log in'}
+                        </button>
+                    </form>
 
-                            <TextField
-                                required
-                                fullWidth
-                                label="Password"
-                                type={showPassword ? 'text' : 'password'}
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                autoComplete="current-password"
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <LockOutlined sx={{ color: theme.palette.primary.main }} />
-                                        </InputAdornment>
-                                    ),
-                                    endAdornment: (
-                                        <InputAdornment position="end">
-                                            <IconButton
-                                                onClick={() => setShowPassword(!showPassword)}
-                                                edge="end"
-                                            >
-                                                {showPassword ? 
-                                                    <VisibilityOffOutlined sx={{ color: theme.palette.primary.main }} /> : 
-                                                    <VisibilityOutlined sx={{ color: theme.palette.primary.main }} />
-                                                }
-                                            </IconButton>
-                                        </InputAdornment>
-                                    ),
-                                }}
-                                sx={{
-                                    '& .MuiOutlinedInput-root': {
-                                        borderRadius: 2,
-                                        bgcolor: 'background.paper',
-                                    },
-                                }}
-                            />
-
-                            <Button
-                                type="submit"
-                                variant="contained"
-                                size="large"
-                                startIcon={<LoginOutlined />}
-                                sx={{
-                                    mt: 2,
-                                    py: 1.5,
-                                    borderRadius: 2,
-                                    fontSize: '1.1rem',
-                                    fontWeight: 500,
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                                    '&:hover': {
-                                        boxShadow: '0 6px 16px rgba(0, 0, 0, 0.15)',
-                                        transform: 'translateY(-1px)',
-                                    },
-                                    transition: 'transform 0.2s',
-                                }}
+                    {publicMapUrl ? (
+                        <div className="mt-8 pt-6 border-t border-black/[0.06] text-center">
+                            <a
+                                href={publicMapUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-[#5c4d8a] hover:text-[#7B6CB8] transition-colors group"
                             >
-                                Sign In
-                            </Button>
-                        </Box>
-
-                        <Box sx={{ mt: 4, textAlign: 'center' }}>
-                            <Typography variant="body2" gutterBottom>
-                                Available roles:
-                            </Typography>
-                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                                {['admin', 'editor', 'viewer', 'guest'].map((role) => (
-                                    <Typography
-                                        key={role}
-                                        variant="body2"
-                                        sx={{
-                                            backgroundColor: theme.palette.primary.light + '20',
-                                            px: 2,
-                                            py: 0.5,
-                                            borderRadius: 1,
-                                            fontWeight: 500,
-                                        }}
-                                    >
-                                        {role}
-                                    </Typography>
-                                ))}
-                            </Box>
-                        </Box>
-                    </Box>
-                </Paper>
-            </Container>
-        </Box>
+                                <span>Open the public map</span>
+                                <ArrowTopRightOnSquareIcon className="h-4 w-4 opacity-70 group-hover:opacity-100" />
+                            </a>
+                        </div>
+                    ) : null}
+                </div>
+            </div>
+        </div>
     );
-} 
+}

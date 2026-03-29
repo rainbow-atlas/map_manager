@@ -1,220 +1,97 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useLocation, NavLink } from 'react-router-dom';
 import {
-    Box,
-    Drawer,
-    List,
-    ListItem,
-    ListItemButton,
-    ListItemIcon,
-    ListItemText,
-    AppBar,
-    Toolbar,
-    Typography,
-    IconButton,
-    Button,
-    Tooltip,
-    useTheme,
-    Divider,
-} from '@mui/material';
+    ArrowRightOnRectangleIcon,
+    Squares2X2Icon as Squares2X2Outline,
+    PlusIcon as PlusOutline,
+    MapPinIcon as MapPinOutline,
+    FolderIcon as FolderOutline,
+    TagIcon as TagOutline,
+    CodeBracketIcon as CodeBracketOutline,
+    UserGroupIcon as UserGroupOutline,
+} from '@heroicons/react/24/outline';
 import {
-    MenuOutlined,
-    AddOutlined,
-    PlaceOutlined,
-    CategoryOutlined,
-    LocalOfferOutlined,
-    CodeOutlined,
-    LogoutOutlined,
-    PersonOutlineOutlined,
-    DashboardOutlined,
-} from '@mui/icons-material';
+    Squares2X2Icon,
+    PlusIcon,
+    MapPinIcon,
+    FolderIcon,
+    TagIcon,
+    CodeBracketIcon,
+    UserGroupIcon,
+} from '@heroicons/react/24/solid';
 import { AuthService } from '../services/AuthService';
 
-const DRAWER_WIDTH = 240;
+const SIDEBAR_WIDTH = 80;
 
-interface LayoutProps {
-    children: React.ReactNode;
-    onLogout: () => void;
-}
+const menuItems = [
+    { text: 'Dashboard', path: '/home', icon: Squares2X2Icon, iconOutline: Squares2X2Outline },
+    { text: 'Create', path: '/create', icon: PlusIcon, iconOutline: PlusOutline },
+    { text: 'Locations', path: '/locations', icon: MapPinIcon, iconOutline: MapPinOutline },
+    { text: 'Categories', path: '/categories', icon: FolderIcon, iconOutline: FolderOutline },
+    { text: 'Tags', path: '/tags', icon: TagIcon, iconOutline: TagOutline },
+    { text: 'Scripts', path: '/scripts', icon: CodeBracketIcon, iconOutline: CodeBracketOutline },
+];
 
-export default function Layout({ children, onLogout }: LayoutProps) {
-    const [mobileOpen, setMobileOpen] = useState(false);
-    const theme = useTheme();
-    const navigate = useNavigate();
+const adminMenuItem = {
+    text: 'Admin',
+    path: '/admin',
+    icon: UserGroupIcon,
+    iconOutline: UserGroupOutline,
+};
+
+export default function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
     const location = useLocation();
-    const currentUser = AuthService.getCurrentUser();
-
-    const menuItems = [
-        { text: 'Dashboard', icon: <DashboardOutlined />, path: '/home' },
-        { text: 'Create', icon: <AddOutlined />, path: '/create' },
-        { text: 'Locations', icon: <PlaceOutlined />, path: '/locations' },
-        { text: 'Categories', icon: <CategoryOutlined />, path: '/categories' },
-        { text: 'Tags', icon: <LocalOfferOutlined />, path: '/tags' },
-        { text: 'Scripts', icon: <CodeOutlined />, path: '/scripts' },
-    ];
-
-    const handleDrawerToggle = () => {
-        setMobileOpen(!mobileOpen);
-    };
-
-    const handleNavigation = (path: string) => {
-        navigate(path);
-        setMobileOpen(false);
-    };
-
-    const drawer = (
-        <Box>
-            <Toolbar>
-                <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 600 }}>
-                    Rainbow Atlas
-                </Typography>
-            </Toolbar>
-            <Divider />
-            <List>
-                {menuItems.map((item) => (
-                    <ListItem key={item.text} disablePadding>
-                        <ListItemButton
-                            selected={location.pathname === item.path}
-                            onClick={() => handleNavigation(item.path)}
-                            sx={{
-                                borderRadius: 2,
-                                mx: 1,
-                                '&.Mui-selected': {
-                                    bgcolor: theme.palette.primary.main + '10',
-                                    '&:hover': {
-                                        bgcolor: theme.palette.primary.main + '20',
-                                    },
-                                },
-                            }}
-                        >
-                            <ListItemIcon 
-                                sx={{ 
-                                    color: location.pathname === item.path ? 'primary.main' : 'inherit',
-                                    minWidth: 40,
-                                }}
-                            >
-                                {item.icon}
-                            </ListItemIcon>
-                            <ListItemText 
-                                primary={item.text}
-                                primaryTypographyProps={{
-                                    sx: {
-                                        fontWeight: location.pathname === item.path ? 600 : 400,
-                                        color: location.pathname === item.path ? 'primary.main' : 'inherit',
-                                    },
-                                }}
-                            />
-                        </ListItemButton>
-                    </ListItem>
-                ))}
-            </List>
-        </Box>
-    );
+    const [user, setUser] = useState(() => AuthService.getCurrentUser());
+    useEffect(() => {
+        setUser(AuthService.getCurrentUser());
+        return AuthService.onAuthStateChange((u) => setUser(u));
+    }, []);
+    const navItems =
+        user?.role === 'admin' ? [...menuItems, adminMenuItem] : menuItems;
 
     return (
-        <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-            <AppBar
-                position="fixed"
-                sx={{
-                    backgroundColor: 'background.paper',
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
-                    ml: { sm: `${DRAWER_WIDTH}px` },
-                }}
-                elevation={0}
+        <div className="h-screen flex bg-[#F5F6F8] overflow-hidden">
+            <aside
+                className="shrink-0 flex flex-col bg-white border-r border-black/10 px-3 py-4"
+                style={{ width: SIDEBAR_WIDTH }}
             >
-                <Toolbar>
-                    <IconButton
-                        color="inherit"
-                        edge="start"
-                        onClick={handleDrawerToggle}
-                        sx={{ mr: 2, display: { sm: 'none' }, color: 'text.primary' }}
-                    >
-                        <MenuOutlined />
-                    </IconButton>
-                    <Typography
-                        variant="h6"
-                        noWrap
-                        component="div"
-                        sx={{ flexGrow: 1, color: 'text.primary', display: { xs: 'none', sm: 'block' } }}
-                    >
-                        Map Manager
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Tooltip title={`Logged in as ${currentUser?.username} (${currentUser?.role})`}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <PersonOutlineOutlined color="primary" />
-                                <Typography variant="body2" color="text.secondary">
-                                    {currentUser?.username}
-                                </Typography>
-                            </Box>
-                        </Tooltip>
-                        <Button
-                            variant="outlined"
-                            startIcon={<LogoutOutlined />}
-                            onClick={onLogout}
-                            size="small"
-                        >
-                            Sign Out
-                        </Button>
-                    </Box>
-                </Toolbar>
-            </AppBar>
-
-            <Box
-                component="nav"
-                sx={{ width: { sm: DRAWER_WIDTH }, flexShrink: { sm: 0 } }}
-            >
-                <Drawer
-                    variant="temporary"
-                    open={mobileOpen}
-                    onClose={handleDrawerToggle}
-                    ModalProps={{ keepMounted: true }}
-                    sx={{
-                        display: { xs: 'block', sm: 'none' },
-                        '& .MuiDrawer-paper': {
-                            boxSizing: 'border-box',
-                            width: DRAWER_WIDTH,
-                            backgroundColor: theme.palette.background.paper,
-                            borderRight: 1,
-                            borderColor: 'divider',
-                        },
-                    }}
+                <nav className="flex-1 flex flex-col items-center justify-center gap-7 min-w-0">
+                    {navItems.map((item) => {
+                        const isActive = location.pathname === item.path;
+                        const Icon = isActive ? item.icon : item.iconOutline;
+                        return (
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                end={item.path === '/home'}
+                                className={({ isActive }) =>
+                                    `flex flex-col items-center justify-center w-full py-2 gap-1 rounded-md no-underline ${
+                                        isActive
+                                            ? 'text-[#7B6CB8] bg-[#9B8ACF]/15'
+                                            : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                                    }`
+                                }
+                                title={item.text}
+                            >
+                                <Icon className="w-5 h-5" strokeWidth={isActive ? undefined : 1.5} />
+                                <span className="text-[10px] leading-tight">{item.text}</span>
+                            </NavLink>
+                        );
+                    })}
+                </nav>
+                <button
+                    onClick={onLogout}
+                    className="self-center p-2 mt-4 mb-2 text-gray-500 hover:text-gray-700 bg-[#9B8ACF]/25 hover:bg-[#9B8ACF]/40 rounded-lg"
+                    title="Sign out"
                 >
-                    {drawer}
-                </Drawer>
-                <Drawer
-                    variant="permanent"
-                    sx={{
-                        display: { xs: 'none', sm: 'block' },
-                        '& .MuiDrawer-paper': {
-                            boxSizing: 'border-box',
-                            width: DRAWER_WIDTH,
-                            backgroundColor: theme.palette.background.paper,
-                            borderRight: 1,
-                            borderColor: 'divider',
-                        },
-                    }}
-                    open
-                >
-                    {drawer}
-                </Drawer>
-            </Box>
-
-            <Box
-                component="main"
-                sx={{
-                    flexGrow: 1,
-                    p: 3,
-                    width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
-                    backgroundColor: 'background.default',
-                    minHeight: '100vh',
-                }}
-            >
-                <Toolbar />
-                {children}
-            </Box>
-        </Box>
+                    <ArrowRightOnRectangleIcon className="w-4 h-4" />
+                </button>
+            </aside>
+            <main className="flex-1 min-w-0 flex flex-col min-h-0 overflow-auto p-3">
+                <div className="flex-1 min-h-0 flex flex-col">
+                    {children}
+                </div>
+            </main>
+        </div>
     );
-} 
+}

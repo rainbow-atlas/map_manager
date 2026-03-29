@@ -1,133 +1,131 @@
-interface User {
+import { supabase } from '../lib/supabase';
+
+export interface User {
+    /** `app_users.id` — used for location audit (`created_by` / `updated_by`). */
+    id: string;
     username: string;
-    role: 'admin' | 'editor' | 'viewer' | 'guest';
+    role: 'admin' | 'editor';
 }
 
-interface UserConfig {
-    password: string;
-    role: 'admin' | 'editor' | 'viewer' | 'guest';
+type AuthStateListener = (user: User | null) => void;
+let authListeners: AuthStateListener[] = [];
+let cachedUser: User | null = null;
+
+function normalizeRole(role: string): User['role'] {
+    if (role === 'viewer' || role === 'guest') return 'editor';
+    if (role === 'admin' || role === 'editor') return role;
+    return 'editor';
+}
+
+function setCachedUser(user: User | null) {
+    cachedUser = user;
+    try {
+        if (user) {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.setItem('map_manager_user', JSON.stringify(user));
+            }
+        } else {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.removeItem('map_manager_user');
+            }
+        }
+    } catch {
+        // ignore storage errors
+    }
+    authListeners.forEach((fn) => fn(user));
+}
+
+async function hashPassword(username: string, password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    // Stable scheme shared with scripts: username:password:map-manager-v1
+    const data = encoder.encode(`${username}:${password}:map-manager-v1`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const bytes = new Uint8Array(digest);
+    return Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
 }
 
 export class AuthService {
-    private static currentUser: User | null = null;
-    private static readonly users = new Map<string, UserConfig>();
-
-    static {
-        // Load users from environment variables
-        let usersConfig = import.meta.env.VITE_USERS_CONFIG;
-        if (!usersConfig) {
-            throw new Error('VITE_USERS_CONFIG environment variable is not set');
-        }
-
-        console.log('Raw users config:', usersConfig);
-        console.log('Config type:', typeof usersConfig);
-        console.log('Config length:', usersConfig.length);
-        console.log('First 10 chars:', usersConfig.substring(0, 10));
-        console.log('Last 10 chars:', usersConfig.substring(usersConfig.length - 10));
-
-        // Special case: if the string starts with "VITE_USERS_CONFIG=", remove that prefix
-        if (typeof usersConfig === 'string' && usersConfig.startsWith('VITE_USERS_CONFIG=')) {
-            usersConfig = usersConfig.substring('VITE_USERS_CONFIG='.length);
-            console.log('Extracted value from key-value pair:', usersConfig);
-        }
-
+    /** Initialize from localStorage on app start. */
+    static init() {
         try {
-            // Try to parse the config, handling potential double-stringification
-            let users;
-            try {
-                // First attempt: try parsing as is
-                users = JSON.parse(usersConfig);
-            } catch (e) {
-                // Second attempt: if it's a string that looks like JSON, try parsing it again
-                if (typeof usersConfig === 'string' && 
-                    (usersConfig.startsWith('"') || usersConfig.startsWith('{'))) {
-                    users = JSON.parse(JSON.parse(usersConfig));
-                } else {
-                    throw e;
-                }
+            if (typeof window === 'undefined' || !window.localStorage) return;
+            const raw = window.localStorage.getItem('map_manager_user');
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as Partial<User> & { role?: string };
+            if (parsed?.id && parsed.username && parsed.role) {
+                const role = normalizeRole(parsed.role);
+                setCachedUser({ id: parsed.id, username: parsed.username, role });
             }
-
-            console.log('Parsed users:', users);
-            console.log('Users type:', typeof users);
-            console.log('Is object?', typeof users === 'object');
-            console.log('Is null?', users === null);
-            
-            Object.entries(users).forEach(([username, config]) => {
-                console.log('Processing user:', username, config);
-                console.log('Config type:', typeof config);
-                console.log('Is object?', typeof config === 'object');
-                console.log('Is null?', config === null);
-                
-                const configObj = config as Record<string, unknown>;
-                console.log('Has password?', 'password' in configObj);
-                console.log('Has role?', 'role' in configObj);
-                
-                if (typeof config === 'object' && config !== null && 'password' in configObj && 'role' in configObj) {
-                    this.users.set(username, config as UserConfig);
-                    console.log('Added user:', username);
-                } else {
-                    console.log('Skipped invalid user:', username);
-                }
-            });
-            
-            console.log('Total users added:', this.users.size);
-        } catch (error: unknown) {
-            console.error('Failed to parse users configuration:', error);
-            if (error instanceof Error) {
-                console.error('Error details:', {
-                    message: error.message,
-                    stack: error.stack,
-                    config: usersConfig
-                });
-            }
-            throw new Error('Invalid users configuration format');
-        }
-
-        if (this.users.size === 0) {
-            throw new Error('No valid users found in configuration');
+        } catch {
+            // ignore parse/storage errors
         }
     }
 
-    static login(username: string, password: string): boolean {
-        const user = this.users.get(username);
-        if (user && user.password === password) {
-            this.currentUser = { username, role: user.role };
-            localStorage.setItem('user', JSON.stringify(this.currentUser));
-            return true;
+    static async login(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+        const { data, error } = await supabase
+            .from('app_users')
+            .select('id, password_hash, role')
+            .eq('username', username)
+            .single();
+
+        if (error || !data) {
+            return { success: false, error: 'Invalid username or password' };
         }
-        return false;
+
+        const expectedHash = data.password_hash as string;
+        const actualHash = await hashPassword(username, password);
+        if (expectedHash !== actualHash) {
+            return { success: false, error: 'Invalid username or password' };
+        }
+
+        const role = normalizeRole(String(data.role));
+        const id = data.id as string;
+        setCachedUser({ id, username, role });
+        return { success: true };
     }
 
-    static logout(): void {
-        this.currentUser = null;
-        localStorage.removeItem('user');
+    static async logout(): Promise<void> {
+        setCachedUser(null);
     }
 
     static getCurrentUser(): User | null {
-        if (!this.currentUser) {
-            const storedUser = localStorage.getItem('user');
-            if (storedUser) {
-                this.currentUser = JSON.parse(storedUser);
-            }
-        }
-        return this.currentUser;
+        return cachedUser;
+    }
+
+    /** Async hook reserved for future use; use `getCurrentUser()` (restores from localStorage in `init`). */
+    static async getSessionUser(): Promise<User | null> {
+        return null;
     }
 
     static isAuthenticated(): boolean {
-        return !!this.getCurrentUser();
+        return !!cachedUser;
     }
 
-    static hasPermission(requiredRole: 'admin' | 'editor' | 'viewer' | 'guest'): boolean {
+    /** Subscribe to auth state changes. Returns unsubscribe fn. */
+    static onAuthStateChange(callback: AuthStateListener): () => void {
+        authListeners.push(callback);
+        return () => {
+            authListeners = authListeners.filter((fn) => fn !== callback);
+        };
+    }
+
+    static hasPermission(requiredRole: 'admin' | 'editor'): boolean {
         const user = this.getCurrentUser();
         if (!user) return false;
 
         const roles = {
-            admin: 4,
-            editor: 3,
-            viewer: 2,
-            guest: 1
+            admin: 2,
+            editor: 1,
         };
-
         return roles[user.role] >= roles[requiredRole];
     }
-} 
+
+    /** Keep local session in sync after `app_users` row changes for the logged-in account. */
+    static applyUserProfileFromServer(userId: string, next: Pick<User, 'username' | 'role'>): void {
+        const u = cachedUser;
+        if (!u || u.id !== userId) return;
+        setCachedUser({ ...u, ...next });
+    }
+}

@@ -1,4 +1,8 @@
-# Google API Setup Guide
+# Google API Setup Guide (Deprecated)
+
+**Note:** The Map Manager app no longer uses Google Sheets for data storage. Data is now hosted on Supabase. This `setup_google/` directory is kept only for legacy or one-off Google Sheets operations (e.g. if you need to read from an old sheet for migration). The Python scripts here are not used by the main application.
+
+---
 
 This guide explains how to set up Google API integration for the Discord bot, specifically for Google Sheets functionality.
 

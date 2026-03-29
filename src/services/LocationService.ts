@@ -1,42 +1,207 @@
 import { Location, LocationFormData } from '../types/Location';
-import { GoogleSheetsService } from './GoogleSheetsService';
+import { supabase } from '../lib/supabase';
+import { AuthService } from './AuthService';
 
-const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID;
-const LOCATIONS_RANGE = 'Sheet1!A1:O1000';
-const CATEGORIES_RANGE = 'Categories!A2:A1000';
-const CATEGORIES_LIST_RANGE = 'Categories!A2:A';  // Active categories - using open-ended range
-const TAGS_LIST_RANGE = 'Tags!A2:A';  // Active tags - using open-ended range
-const CATEGORY_LOG_RANGE = 'Logs!A2:E1000';     // Log of changes (Source, Action, Old Category, New Category, Timestamp)
+function locationAuditInsert(): { created_by?: string; updated_by?: string } {
+    const id = AuthService.getCurrentUser()?.id;
+    if (!id) return {};
+    return { created_by: id, updated_by: id };
+}
 
-// Add environment variable validation
-if (!SHEET_ID) {
-    console.error('Missing Sheet ID. Please check your .env file.');
+function locationAuditUpdate(): { updated_by?: string } {
+    const id = AuthService.getCurrentUser()?.id;
+    if (!id) return {};
+    return { updated_by: id };
+}
+
+/** Used by the anonymous “download JSON” form when the app has not loaded categories/tags from Supabase. */
+export const PUBLIC_FORM_DEFAULT_CATEGORIES: string[] = [
+    'Restaurant',
+    'Bar',
+    'Cafe',
+    'Shop',
+    'Community Center',
+];
+const DEFAULT_CATEGORIES = [...PUBLIC_FORM_DEFAULT_CATEGORIES];
+
+const DEFAULT_TAGS = [
+    'AIDS',
+    'HIV',
+    'STIs',
+    'Fetisch',
+    'Cruising',
+    'Pride-Parade',
+    'Religion',
+    'Inter*',
+    'Jung',
+    'Kultur',
+    'Kino',
+    'Kunst',
+    'Ausstellung',
+    'lgbtiqa*',
+    'Männer',
+    'Frauen',
+    'nonbinary',
+    'PrEP',
+    'Sex',
+    'Sexualität',
+    'Sport',
+    'Therapie',
+    'trans',
+    'Test',
+    'Hotline',
+    'Tanzen',
+    'Workshop',
+    'Coming Out',
+    'Party',
+    'Drag',
+    'Show',
+    'Vorträge',
+];
+
+export const PUBLIC_FORM_DEFAULT_TAGS: string[] = [...DEFAULT_TAGS];
+
+interface LocationRow {
+    id: number;
+    name: string;
+    latitude: number;
+    longitude: number;
+    description: string;
+    website: string;
+    tags: string;
+    image: string;
+    address: string;
+    phone: string;
+    email: string;
+    category: string;
+    contact_person: string;
+    last_checked: string;
+    additional_info: string;
+}
+
+interface LocationRowFetched extends LocationRow {
+    updated_at?: string | null;
+    created_by?: string | null;
+    updated_by?: string | null;
+    created_by_user?: { username: string } | null;
+    updated_by_user?: { username: string } | null;
+    location_categories?: Array<{
+        created_at?: string;
+        categories: { name: string } | null;
+    } | null>;
+}
+
+function dedupePreserveOrder(names: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of names) {
+        const t = raw.trim();
+        if (!t || seen.has(t)) continue;
+        seen.add(t);
+        out.push(t);
+    }
+    return out;
+}
+
+/** Legacy `locations.category` column: ordered names (primary first), comma-separated. */
+function legacyCategoryCsv(names: string[]): string {
+    return dedupePreserveOrder(names).join(', ');
+}
+
+function categoriesFromRow(row: LocationRowFetched): string[] {
+    const legacy = (row.category ?? '').trim();
+    const fromRows = row.location_categories;
+    const junctionRows = Array.isArray(fromRows) ? fromRows : [];
+
+    const namesFromJunction = [...junctionRows]
+        .sort((a, b) => {
+            const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+            const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+            return ta - tb;
+        })
+        .map((j) => j?.categories?.name)
+        .filter((n): n is string => Boolean(n?.trim()))
+        .map((n) => n.trim());
+
+    if (legacy) {
+        const fromLegacy = dedupePreserveOrder(legacy.split(',').map((s) => s.trim()).filter(Boolean));
+        const set = new Set(fromLegacy);
+        const extra = namesFromJunction.filter((n) => !set.has(n));
+        return dedupePreserveOrder([...fromLegacy, ...extra]);
+    }
+    if (namesFromJunction.length) {
+        return dedupePreserveOrder(namesFromJunction);
+    }
+    return [];
+}
+
+function rowToLocation(row: LocationRowFetched): Location {
+    return {
+        ID: String(row.id),
+        Name: row.name,
+        Latitude: row.latitude,
+        Longitude: row.longitude,
+        Description: row.description ?? '',
+        Website: row.website ?? '',
+        Tags: row.tags ?? '',
+        Image: row.image ?? '',
+        Address: row.address ?? '',
+        Phone: row.phone ?? '',
+        Email: row.email ?? '',
+        Categories: categoriesFromRow(row),
+        'Contact Person': row.contact_person ?? '',
+        'Last Checked': row.last_checked ?? '',
+        'Additional Info': row.additional_info ?? '',
+        createdByUsername: row.created_by_user?.username,
+        lastEditedByUsername: row.updated_by_user?.username,
+        recordUpdatedAt: row.updated_at ?? undefined,
+    };
+}
+
+function locationToRow(location: Location | LocationFormData): Partial<LocationRow> {
+    const loc = location as Location;
+    const names = loc.Categories ?? [];
+    return {
+        name: loc.Name ?? '',
+        latitude: loc.Latitude ?? 0,
+        longitude: loc.Longitude ?? 0,
+        description: loc.Description ?? '',
+        website: loc.Website ?? '',
+        tags: loc.Tags ?? '',
+        image: loc.Image ?? '',
+        address: loc.Address ?? '',
+        phone: loc.Phone ?? '',
+        email: loc.Email ?? '',
+        category: legacyCategoryCsv(names),
+        contact_person: loc['Contact Person'] ?? '',
+        last_checked: loc['Last Checked'] ?? '',
+        additional_info: loc['Additional Info'] ?? '',
+    };
 }
 
 export class LocationService {
     private static locations: Location[] = [];
     private static categories: string[] = [];
     private static tags: string[] = [];
-    private static sheetsService = GoogleSheetsService.getInstance();
 
     static async initialize() {
-        console.log('Initializing LocationService...');
-        console.log('Sheet ID:', SHEET_ID);
-        
-        // Validate sheet ID format
-        if (!SHEET_ID.match(/^[a-zA-Z0-9-_]+$/)) {
-            throw new Error('Invalid Sheet ID format. Please check your .env file.');
+        console.log('Initializing LocationService (Supabase)...');
+
+        const url = import.meta.env.VITE_SUPABASE_URL;
+        const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+        if (!url || !key) {
+            throw new Error(
+                'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Please check your .env file.'
+            );
         }
 
         try {
-            // Load categories and tags first to ensure they're available immediately
             await Promise.all([
                 this.fetchCategories(),
-                this.fetchTags()
+                this.fetchTags(),
             ]);
-            // Then load locations
-            await this.fetchFromGoogleSheets();
-            
+            await this.fetchLocations();
             console.log('LocationService initialization complete');
         } catch (error) {
             console.error('Error during initialization:', error);
@@ -44,135 +209,226 @@ export class LocationService {
         }
     }
 
-    private static async logChange(source: 'category' | 'tag', action: 'ADD' | 'DELETE' | 'RENAME', oldValue: string, newValue?: string) {
-        const timestamp = new Date().toISOString();
-        const values = [
-            [source, action, oldValue, newValue || '', timestamp]  // Source, Action, Old Value, New Value, Timestamp
-        ];
-        
+    private static async logChange(
+        source: 'category' | 'tag',
+        action: 'ADD' | 'DELETE' | 'RENAME',
+        oldValue: string,
+        newValue?: string
+    ) {
         try {
-            // Columns: A=Source, B=Action, C=Old Value, D=New Value, E=Timestamp
-            await this.sheetsService.appendToSheet(SHEET_ID, 'Logs!A:E', values);
+            const { error } = await supabase.from('change_logs').insert({
+                source,
+                action,
+                old_value: oldValue,
+                new_value: newValue ?? '',
+            });
+            if (error) {
+                console.error('Failed to log change:', error);
+            }
         } catch (error) {
             console.error('Failed to log change:', error);
-            // Don't throw here - we don't want to break the main operation if logging fails
+        }
+    }
+
+    private static async syncLocationCategories(locationId: number, categoryNames: string[]): Promise<void> {
+        const unique = dedupePreserveOrder(categoryNames.map((s) => s.trim()).filter(Boolean));
+        for (const name of unique) {
+            if (!this.categories.includes(name)) {
+                await this.addCategory(name);
+            }
+        }
+
+        const { error: delErr } = await supabase
+            .from('location_categories')
+            .delete()
+            .eq('location_id', locationId);
+        if (delErr) {
+            throw new Error(`Failed to clear location categories: ${delErr.message}`);
+        }
+
+        if (unique.length === 0) {
+            const { error: upErr } = await supabase
+                .from('locations')
+                .update({ category: '', ...locationAuditUpdate() })
+                .eq('id', locationId);
+            if (upErr) {
+                throw new Error(`Failed to update location legacy category: ${upErr.message}`);
+            }
+            return;
+        }
+
+        const { data: catRows, error: catErr } = await supabase
+            .from('categories')
+            .select('id, name')
+            .in('name', unique);
+        if (catErr) {
+            throw new Error(`Failed to resolve categories: ${catErr.message}`);
+        }
+        const idByName = new Map((catRows ?? []).map((r: { id: number; name: string }) => [r.name, r.id]));
+
+        const inserts = unique.map((name) => {
+            const cid = idByName.get(name);
+            if (!cid) {
+                throw new Error(`Category not found after insert: ${name}`);
+            }
+            return { location_id: locationId, category_id: cid };
+        });
+        const { error: insErr } = await supabase.from('location_categories').insert(inserts);
+        if (insErr) {
+            throw new Error(`Failed to set location categories: ${insErr.message}`);
+        }
+
+        const { error: legErr } = await supabase
+            .from('locations')
+            .update({ category: legacyCategoryCsv(unique), ...locationAuditUpdate() })
+            .eq('id', locationId);
+        if (legErr) {
+            throw new Error(`Failed to update location legacy category: ${legErr.message}`);
+        }
+    }
+
+    private static async syncLegacyCategoryColumn(locationId: number): Promise<void> {
+        const { data: rows, error } = await supabase
+            .from('location_categories')
+            .select('created_at, categories(name)')
+            .eq('location_id', locationId);
+        if (error) {
+            throw new Error(`Failed to read location categories: ${error.message}`);
+        }
+        const sorted = [...(rows ?? [])].sort((a, b) => {
+            const ta = (a as { created_at?: string }).created_at
+                ? new Date((a as { created_at?: string }).created_at!).getTime()
+                : 0;
+            const tb = (b as { created_at?: string }).created_at
+                ? new Date((b as { created_at?: string }).created_at!).getTime()
+                : 0;
+            return ta - tb;
+        });
+        const names = sorted
+            .map((r: { categories: { name: string } | null }) => r.categories?.name)
+            .filter((n): n is string => Boolean(n?.trim()))
+            .map((n) => n.trim());
+        const unique = dedupePreserveOrder(names);
+        await supabase
+            .from('locations')
+            .update({ category: legacyCategoryCsv(unique), ...locationAuditUpdate() })
+            .eq('id', locationId);
+    }
+
+    private static async fetchLocations() {
+        try {
+            console.log('Fetching locations from Supabase...');
+            const embedded = await supabase
+                .from('locations')
+                .select(
+                    `
+          *,
+          location_categories (
+            created_at,
+            categories (
+              name
+            )
+          ),
+          created_by_user:app_users!created_by(username),
+          updated_by_user:app_users!updated_by(username)
+        `
+                )
+                .order('id', { ascending: true });
+
+            if (embedded.error) {
+                console.warn(
+                    'Embedded category fetch failed; falling back to legacy column:',
+                    embedded.error.message
+                );
+                const { data, error } = await supabase
+                    .from('locations')
+                    .select('*')
+                    .order('id', { ascending: true });
+                if (error) {
+                    throw new Error(`Failed to fetch locations: ${error.message}`);
+                }
+                this.locations = (data ?? []).map((row: LocationRow) =>
+                    rowToLocation({ ...row, location_categories: [] })
+                );
+            } else {
+                this.locations = (embedded.data ?? []).map((row: LocationRowFetched) =>
+                    rowToLocation(row)
+                );
+            }
+            console.log('Fetched locations:', this.locations.length);
+        } catch (error) {
+            console.error('Error fetching locations:', error);
+            throw error;
         }
     }
 
     private static async fetchCategories() {
         try {
-            console.log('Fetching categories from Google Sheets...');
-            const values = await this.sheetsService.readSheet(SHEET_ID, CATEGORIES_LIST_RANGE);
-            
-            if (values) {
-                this.categories = values
-                    .flat()
-                    .filter((category: unknown): category is string => 
-                        category !== null && 
-                        typeof category === 'string' && 
-                        category.trim() !== ''
-                    )
-                    .sort();
-                console.log('Fetched categories:', this.categories);
+            console.log('Fetching categories from Supabase...');
+            const { data, error } = await supabase
+                .from('categories')
+                .select('name')
+                .order('name', { ascending: true });
+
+            if (error) {
+                throw new Error(`Failed to fetch categories: ${error.message}`);
             }
 
-            if (!this.categories || this.categories.length === 0) {
-                console.log('No categories found, using defaults');
-                this.categories = ['Restaurant', 'Bar', 'Cafe', 'Shop', 'Community Center'];
-                // Add default categories to sheet
-                await this.sheetsService.updateSheet(SHEET_ID, CATEGORIES_LIST_RANGE, 
-                    this.categories.map(cat => [cat])
-                );
-                // Log the addition of default categories
-                for (const category of this.categories) {
-                    await this.logChange('category', 'ADD', category);
+            const names = (data ?? []).map((r: { name: string }) => r.name?.trim()).filter(Boolean);
+
+            if (names.length === 0) {
+                console.log('No categories found, seeding defaults');
+                for (const cat of DEFAULT_CATEGORIES) {
+                    const { error: insertErr } = await supabase.from('categories').insert({ name: cat });
+                    if (insertErr && insertErr.code !== '23505') {
+                        console.error('Error seeding category:', insertErr);
+                    }
                 }
+                this.categories = [...DEFAULT_CATEGORIES].sort();
+                for (const cat of this.categories) {
+                    await this.logChange('category', 'ADD', cat);
+                }
+            } else {
+                this.categories = names.sort();
             }
         } catch (error) {
             console.error('Error fetching categories:', error);
-            this.categories = ['Restaurant', 'Bar', 'Cafe', 'Shop', 'Community Center'];
+            this.categories = [...DEFAULT_CATEGORIES];
         }
     }
 
     private static async fetchTags() {
         try {
-            console.log('Fetching tags from Google Sheets...');
-            const values = await this.sheetsService.readSheet(SHEET_ID, TAGS_LIST_RANGE);
-            
-            if (values) {
-                this.tags = values
-                    .flat()
-                    .filter((tag: unknown): tag is string => 
-                        tag !== null && 
-                        typeof tag === 'string' && 
-                        tag.trim() !== ''
-                    )
-                    .sort();
-                console.log('Fetched tags:', this.tags);
+            console.log('Fetching tags from Supabase...');
+            const { data, error } = await supabase
+                .from('tags')
+                .select('name')
+                .order('name', { ascending: true });
+
+            if (error) {
+                throw new Error(`Failed to fetch tags: ${error.message}`);
             }
 
-            if (!this.tags || this.tags.length === 0) {
-                console.log('No tags found, using defaults');
-                this.tags = ['Historic', 'Family-Friendly', 'Accessible', 'Pet-Friendly', 'Parking'];
-                // Add default tags to sheet
-                await this.sheetsService.updateSheet(SHEET_ID, TAGS_LIST_RANGE, 
-                    this.tags.map(tag => [tag])
-                );
-                // Log the addition of default tags
+            const names = (data ?? []).map((r: { name: string }) => r.name?.trim()).filter(Boolean);
+
+            if (names.length === 0) {
+                console.log('No tags found, seeding defaults');
+                for (const tag of DEFAULT_TAGS) {
+                    const { error: insertErr } = await supabase.from('tags').insert({ name: tag });
+                    if (insertErr && insertErr.code !== '23505') {
+                        console.error('Error seeding tag:', insertErr);
+                    }
+                }
+                this.tags = [...DEFAULT_TAGS].sort();
                 for (const tag of this.tags) {
                     await this.logChange('tag', 'ADD', tag);
                 }
+            } else {
+                this.tags = names.sort();
             }
         } catch (error) {
             console.error('Error fetching tags:', error);
-            this.tags = ['Historic', 'Family-Friendly', 'Accessible', 'Pet-Friendly', 'Parking'];
-        }
-    }
-
-    private static async fetchFromGoogleSheets() {
-        try {
-            console.log('Fetching data from Google Sheets...');
-            const values = await this.sheetsService.readSheet(SHEET_ID, LOCATIONS_RANGE);
-            
-            if (!values) {
-                throw new Error('No data received from Google Sheets. Please check that the sheet is not empty.');
-            }
-
-            if (values.length <= 1) {
-                throw new Error('Sheet appears to be empty (only headers found).');
-            }
-
-            const columnHeaders = values[0] as string[];
-            console.log('Headers:', columnHeaders);
-
-            const requiredColumns = ['ID', 'Name', 'Latitude', 'Longitude'];
-            for (const column of requiredColumns) {
-                if (!columnHeaders.includes(column)) {
-                    throw new Error(`Required column "${column}" not found in sheet headers.`);
-                }
-            }
-
-            this.locations = values.slice(1).map((row: any[], index: number) => {
-                const location: any = {};
-                columnHeaders.forEach((header: string, i: number) => {
-                    let value = row[i] || '';
-                    if (header === 'Latitude' || header === 'Longitude') {
-                        value = value === '' ? 0 : parseFloat(value);
-                        if (isNaN(value)) {
-                            console.warn(`Invalid ${header} value in row ${index + 2}: "${row[i]}"`);
-                            value = 0;
-                        }
-                    }
-                    location[header] = value;
-                });
-                location.ID = (row[columnHeaders.indexOf('ID')] || (index + 1)).toString();
-                return location as Location;
-            });
-
-            console.log('Processed locations:', this.locations);
-        } catch (error) {
-            console.error('Error fetching data from Google Sheets:', error);
-            throw error;
+            this.tags = [...DEFAULT_TAGS];
         }
     }
 
@@ -181,7 +437,7 @@ export class LocationService {
     }
 
     static getLocation(id: string): Location | undefined {
-        return this.locations.find(loc => loc.ID === id);
+        return this.locations.find((loc) => loc.ID === id);
     }
 
     static getCategories(): string[] {
@@ -192,330 +448,313 @@ export class LocationService {
         return this.tags;
     }
 
+    /** Number of locations using this category */
+    static getLocationCountByCategory(category: string): number {
+        return this.locations.filter((l) => (l.Categories ?? []).includes(category)).length;
+    }
+
+    /** Number of locations using this tag */
+    static getLocationCountByTag(tag: string): number {
+        return this.locations.filter((l) =>
+            (l.Tags ?? '')
+                .split(',')
+                .map((t) => t.trim())
+                .includes(tag)
+        ).length;
+    }
+
     static async addCategory(category: string): Promise<void> {
         console.log('Adding category:', category);
-        if (!this.categories.includes(category)) {
-            this.categories.push(category);
-            this.categories.sort();
-            
-            try {
-                // Add to categories list - use updateSheet to overwrite the entire list
-                await this.sheetsService.updateSheet(SHEET_ID, CATEGORIES_LIST_RANGE, 
-                    this.categories.map(cat => [cat])
-                );
-                // Log the addition
-                await this.logChange('category', 'ADD', category);
-            } catch (error) {
-                console.error('Error adding category:', error);
-                throw new Error('Failed to add category');
+        if (this.categories.includes(category)) return;
+
+        const { error } = await supabase.from('categories').insert({ name: category });
+        if (error) {
+            if (error.code === '23505') {
+                this.categories = [...new Set([...this.categories, category])].sort();
+                return;
             }
+            throw new Error(`Failed to add category: ${error.message}`);
         }
+
+        this.categories.push(category);
+        this.categories.sort();
+        await this.logChange('category', 'ADD', category);
     }
 
     static async renameCategory(oldCategory: string, newCategory: string): Promise<void> {
         console.log('Renaming category:', oldCategory, 'to', newCategory);
-        
-        try {
-            // Update all locations with the old category
-            const locationsToUpdate = this.locations.filter(loc => loc.Category === oldCategory);
-            
-            // Update each location with the new category
-            for (const location of locationsToUpdate) {
-                const updatedLocation = { ...location, Category: newCategory };
-                const rowIndex = this.locations.findIndex(loc => loc.ID === location.ID) + 2;
-                await this.updateRow(rowIndex, this.locationToRow(updatedLocation));
-                
-                // Update the location in memory
-                const index = this.locations.findIndex(loc => loc.ID === location.ID);
-                if (index !== -1) {
-                    this.locations[index] = updatedLocation;
-                }
-            }
-            
-            // Update categories list
-            const categoryIndex = this.categories.indexOf(oldCategory);
-            if (categoryIndex !== -1) {
-                // Remove old category and add new one
-                this.categories.splice(categoryIndex, 1);
-                if (!this.categories.includes(newCategory)) {
-                    this.categories.push(newCategory);
-                    this.categories.sort();
-                }
-                
-                // Update the categories in the sheet
-                await this.sheetsService.updateSheet(SHEET_ID, CATEGORIES_LIST_RANGE, 
-                    this.categories.map(cat => [cat])
-                );
-                
-                // Log the rename
-                await this.logChange('category', 'RENAME', oldCategory, newCategory);
-            }
-        } catch (error) {
-            console.error('Error renaming category:', error);
-            throw new Error('Failed to rename category');
+
+        const { error: updateCatError } = await supabase
+            .from('categories')
+            .update({ name: newCategory })
+            .eq('name', oldCategory);
+
+        if (updateCatError && updateCatError.code !== '23505') {
+            throw new Error(`Failed to rename category: ${updateCatError.message}`);
         }
+
+        const idx = this.categories.indexOf(oldCategory);
+        if (idx !== -1) {
+            this.categories.splice(idx, 1);
+            if (!this.categories.includes(newCategory)) {
+                this.categories.push(newCategory);
+                this.categories.sort();
+            }
+        }
+
+        await this.logChange('category', 'RENAME', oldCategory, newCategory);
+        await this.refreshData();
     }
 
     static async deleteCategory(category: string): Promise<void> {
         console.log('Deleting category:', category);
-        
-        try {
-            // Instead of deleting, rename to empty string which we know works
-            await this.renameCategory(category, '');
-            
-            // Remove from memory
-            const categoryIndex = this.categories.indexOf(category);
-            if (categoryIndex !== -1) {
-                this.categories.splice(categoryIndex, 1);
-                
-                // Override the RENAME log with a DELETE log
-                await this.logChange('category', 'DELETE', category);
-                
-                // Refresh data to ensure UI is updated
-                await this.refreshData();
-            }
-        } catch (error) {
-            console.error('Error deleting category:', error);
-            throw new Error('Failed to delete category');
+
+        const { data: catRow, error: catErr } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('name', category)
+            .maybeSingle();
+
+        if (catErr) {
+            throw new Error(`Failed to look up category: ${catErr.message}`);
         }
+        if (!catRow) {
+            this.categories = this.categories.filter((c) => c !== category);
+            await this.refreshData();
+            return;
+        }
+
+        const { data: affected, error: affErr } = await supabase
+            .from('location_categories')
+            .select('location_id')
+            .eq('category_id', catRow.id);
+
+        if (affErr) {
+            throw new Error(`Failed to list category locations: ${affErr.message}`);
+        }
+
+        const { error: delJunctionErr } = await supabase
+            .from('location_categories')
+            .delete()
+            .eq('category_id', catRow.id);
+
+        if (delJunctionErr) {
+            throw new Error(`Failed to remove category links: ${delJunctionErr.message}`);
+        }
+
+        const { error: deleteError } = await supabase.from('categories').delete().eq('id', catRow.id);
+
+        if (deleteError) {
+            throw new Error(`Failed to delete category: ${deleteError.message}`);
+        }
+
+        const { error: legacyExactErr } = await supabase
+            .from('locations')
+            .update({ category: '', ...locationAuditUpdate() })
+            .eq('category', category);
+
+        if (legacyExactErr) {
+            throw new Error(`Failed to clear legacy category column: ${legacyExactErr.message}`);
+        }
+
+        const seen = new Set<number>();
+        for (const row of affected ?? []) {
+            const lid = row.location_id as number;
+            if (seen.has(lid)) continue;
+            seen.add(lid);
+            await this.syncLegacyCategoryColumn(lid);
+        }
+
+        this.categories = this.categories.filter((c) => c !== category);
+        await this.logChange('category', 'DELETE', category);
+        await this.refreshData();
     }
 
     static async addTag(tag: string): Promise<void> {
         console.log('Adding tag:', tag);
-        try {
-            // Add new tag to memory if it doesn't exist
-            if (!this.tags.includes(tag)) {
-                this.tags.push(tag);
+        if (this.tags.includes(tag)) return;
+
+        const { error } = await supabase.from('tags').insert({ name: tag });
+        if (error) {
+            if (error.code === '23505') {
+                this.tags = [...new Set([...this.tags, tag])].sort();
+                return;
             }
-            
-            // Remove duplicates and sort
-            this.tags = [...new Set(this.tags)].sort();
-            
-            // Update the Tags worksheet with the clean list
-            // Using A2:A to ensure we start from row 2 and cover all existing tags
-            await this.sheetsService.updateSheet(SHEET_ID, 'Tags!A2:A', 
-                this.tags.map(t => [t])
-            );
-            
-            // Log the addition only if it was a new tag
-            if (!this.tags.includes(tag)) {
-                await this.logChange('tag', 'ADD', tag);
-            }
-        } catch (error) {
-            console.error('Error adding tag:', error);
-            throw new Error('Failed to add tag');
+            throw new Error(`Failed to add tag: ${error.message}`);
         }
+
+        this.tags.push(tag);
+        this.tags = [...new Set(this.tags)].sort();
+        await this.logChange('tag', 'ADD', tag);
     }
 
     static async renameTag(oldTag: string, newTag: string): Promise<void> {
         console.log('Renaming tag:', oldTag, 'to', newTag);
-        
-        try {
-            // Update all locations with the old tag
-            const locationsToUpdate = this.locations.filter(loc => 
-                loc.Tags && loc.Tags.split(',').map(t => t.trim()).includes(oldTag)
-            );
-            
-            // Update each location with the new tag
-            for (const location of locationsToUpdate) {
-                const tags = location.Tags ? location.Tags.split(',').map(t => t.trim()) : [];
-                const tagIndex = tags.indexOf(oldTag);
-                if (tagIndex !== -1) {
-                    tags[tagIndex] = newTag;
-                }
-                const updatedLocation = { ...location, Tags: tags.join(', ') };
-                const rowIndex = this.locations.findIndex(loc => loc.ID === location.ID) + 2;
-                await this.updateRow(rowIndex, this.locationToRow(updatedLocation));
-                
-                // Update the location in memory
-                const index = this.locations.findIndex(loc => loc.ID === location.ID);
-                if (index !== -1) {
-                    this.locations[index] = updatedLocation;
+
+        const locationsToUpdate = this.locations.filter((l) =>
+            l.Tags?.split(',')
+                .map((t) => t.trim())
+                .includes(oldTag)
+        );
+
+        for (const loc of locationsToUpdate) {
+            const tags = (loc.Tags ?? '')
+                .split(',')
+                .map((t) => t.trim())
+                .filter(Boolean);
+            const i = tags.indexOf(oldTag);
+            if (i !== -1) {
+                tags[i] = newTag;
+                const { error } = await supabase
+                    .from('locations')
+                    .update({ tags: tags.join(', '), ...locationAuditUpdate() })
+                    .eq('id', parseInt(loc.ID, 10));
+
+                if (error) {
+                    throw new Error(`Failed to update location tags: ${error.message}`);
                 }
             }
-            
-            // Update tags list
-            const tagIndex = this.tags.indexOf(oldTag);
-            if (tagIndex !== -1) {
-                // Remove old tag and add new one
-                this.tags.splice(tagIndex, 1);
-                if (!this.tags.includes(newTag)) {
-                    this.tags.push(newTag);
-                    this.tags.sort();
-                }
-                
-                // Update the tags in the sheet
-                await this.sheetsService.updateSheet(SHEET_ID, TAGS_LIST_RANGE, 
-                    this.tags.map(t => [t])
-                );
-                
-                // Log the rename
-                await this.logChange('tag', 'RENAME', oldTag, newTag);
-            }
-        } catch (error) {
-            console.error('Error renaming tag:', error);
-            throw new Error('Failed to rename tag');
         }
+
+        const { error: updateTagError } = await supabase
+            .from('tags')
+            .update({ name: newTag })
+            .eq('name', oldTag);
+
+        if (updateTagError && updateTagError.code !== '23505') {
+            throw new Error(`Failed to rename tag: ${updateTagError.message}`);
+        }
+
+        const tagIdx = this.tags.indexOf(oldTag);
+        if (tagIdx !== -1) {
+            this.tags.splice(tagIdx, 1);
+            if (!this.tags.includes(newTag)) {
+                this.tags.push(newTag);
+                this.tags.sort();
+            }
+        }
+
+        for (let i = 0; i < this.locations.length; i++) {
+            const tags = (this.locations[i].Tags ?? '').split(',').map((t) => t.trim());
+            const j = tags.indexOf(oldTag);
+            if (j !== -1) {
+                tags[j] = newTag;
+                this.locations[i] = { ...this.locations[i], Tags: tags.join(', ') };
+            }
+        }
+
+        await this.logChange('tag', 'RENAME', oldTag, newTag);
     }
 
     static async deleteTag(tag: string): Promise<void> {
         console.log('Deleting tag:', tag);
-        
-        try {
-            // Remove tag from memory
-            this.tags = this.tags.filter(t => t !== tag);
-            
-            // Update the Tags worksheet with the filtered list
-            // Using A2:A to ensure we start from row 2 and cover all existing tags
-            await this.sheetsService.updateSheet(SHEET_ID, 'Tags!A2:A', 
-                this.tags.map(t => [t])
-            );
-            
-            // Update all locations that had this tag
-            const locationsToUpdate = this.locations.filter(loc => 
-                loc.Tags && loc.Tags.split(',').map(t => t.trim()).includes(tag)
-            );
-            
-            // Update each location with the tag removed
-            for (const location of locationsToUpdate) {
-                const tags = location.Tags ? location.Tags.split(',').map(t => t.trim()) : [];
-                const updatedTags = tags.filter(t => t !== tag);
-                const updatedLocation = { ...location, Tags: updatedTags.join(', ') };
-                const rowIndex = this.locations.findIndex(loc => loc.ID === location.ID) + 2;
-                await this.updateRow(rowIndex, this.locationToRow(updatedLocation));
-                
-                // Update the location in memory
-                const index = this.locations.findIndex(loc => loc.ID === location.ID);
-                if (index !== -1) {
-                    this.locations[index] = updatedLocation;
-                }
+
+        const locationsToUpdate = this.locations.filter((l) =>
+            l.Tags?.split(',')
+                .map((t) => t.trim())
+                .includes(tag)
+        );
+
+        for (const loc of locationsToUpdate) {
+            const tags = (loc.Tags ?? '')
+                .split(',')
+                .map((t) => t.trim())
+                .filter((t) => t !== tag);
+            const { error } = await supabase
+                .from('locations')
+                .update({ tags: tags.join(', '), ...locationAuditUpdate() })
+                .eq('id', parseInt(loc.ID, 10));
+
+            if (error) {
+                throw new Error(`Failed to remove tag from location: ${error.message}`);
             }
-            
-            // Log the deletion
-            await this.logChange('tag', 'DELETE', tag);
-            
-            // Refresh data to ensure UI is updated
-            await this.refreshData();
-        } catch (error) {
-            console.error('Error deleting tag:', error);
-            throw new Error('Failed to delete tag');
         }
-    }
 
-    private static async appendRow(values: any[]): Promise<void> {
-        try {
-            await this.sheetsService.appendToSheet(SHEET_ID, 'Sheet1!A1:O1', [values]);
-        } catch (error) {
-            console.error('Failed to append row:', error);
-            throw new Error('Failed to save data to Google Sheets');
+        const { error: deleteError } = await supabase.from('tags').delete().eq('name', tag);
+
+        if (deleteError) {
+            throw new Error(`Failed to delete tag: ${deleteError.message}`);
         }
-    }
 
-    private static async updateRow(rowIndex: number, values: any[]): Promise<void> {
-        try {
-            const range = `Sheet1!A${rowIndex}:O${rowIndex}`;
-            await this.sheetsService.updateSheet(SHEET_ID, range, [values]);
-        } catch (error) {
-            console.error('Failed to update row:', error);
-            throw new Error('Failed to update data in Google Sheets');
+        this.tags = this.tags.filter((t) => t !== tag);
+        for (let i = 0; i < this.locations.length; i++) {
+            const tags = (this.locations[i].Tags ?? '')
+                .split(',')
+                .map((t) => t.trim())
+                .filter((t) => t !== tag);
+            this.locations[i] = { ...this.locations[i], Tags: tags.join(', ') };
         }
-    }
 
-    private static async clearRow(rowIndex: number): Promise<void> {
-        try {
-            const range = `Sheet1!A${rowIndex}:O${rowIndex}`;
-            await this.sheetsService.clearRange(SHEET_ID, range);
-        } catch (error) {
-            console.error('Failed to clear row:', error);
-            throw new Error('Failed to delete data from Google Sheets');
-        }
-    }
-
-    private static locationToRow(location: Location): any[] {
-        return [
-            location.ID,
-            location.Name,
-            location.Latitude,
-            location.Longitude,
-            location.Description,
-            location.Website,
-            location.Tags,
-            location.Image,
-            location.Address,
-            location.Phone,
-            location.Email,
-            location.Category,
-            location['Contact Person'],
-            location['Last Checked'],
-            location['Additional Info']
-        ];
+        await this.logChange('tag', 'DELETE', tag);
+        await this.refreshData();
     }
 
     static async addLocation(location: LocationFormData): Promise<Location> {
         console.log('Adding location:', location);
+
+        const row = { ...locationToRow(location), ...locationAuditInsert() };
+        const { data, error } = await supabase.from('locations').insert(row).select('id').single();
+
+        if (error) {
+            throw new Error(`Failed to add location: ${error.message}`);
+        }
+
+        const id = data.id as number;
+        await this.syncLocationCategories(id, location.Categories ?? []);
+
         const newLocation: Location = {
             ...location,
-            ID: (Math.max(...this.locations.map(l => parseInt(l.ID)), 0) + 1).toString()
+            ID: String(id),
+            Categories: [...new Set((location.Categories ?? []).map((s) => s.trim()).filter(Boolean))].sort(),
         };
+        this.locations.push(newLocation);
 
-        try {
-            await this.appendRow(this.locationToRow(newLocation));
-            this.locations.push(newLocation);
-
-            if (location.Category && !this.categories.includes(location.Category)) {
-                await this.addCategory(location.Category);
-            }
-
-            return newLocation;
-        } catch (error) {
-            console.error('Error adding location:', error);
-            throw new Error('Failed to add location to Google Sheets');
-        }
+        return newLocation;
     }
 
     static async updateLocation(id: string, location: LocationFormData): Promise<Location> {
         console.log('Updating location:', id, location);
-        const index = this.locations.findIndex(loc => loc.ID === id);
+
+        const index = this.locations.findIndex((l) => l.ID === id);
         if (index === -1) throw new Error('Location not found');
-        
-        const updatedLocation: Location = { ...location, ID: id };
 
-        try {
-            const rowIndex = index + 2;
-            await this.updateRow(rowIndex, this.locationToRow(updatedLocation));
-            this.locations[index] = updatedLocation;
+        const row = { ...locationToRow(location), ...locationAuditUpdate() };
+        const { error } = await supabase.from('locations').update(row).eq('id', parseInt(id, 10));
 
-            if (location.Category && !this.categories.includes(location.Category)) {
-                await this.addCategory(location.Category);
-            }
-
-            return updatedLocation;
-        } catch (error) {
-            console.error('Error updating location:', error);
-            throw new Error('Failed to update location in Google Sheets');
+        if (error) {
+            throw new Error(`Failed to update location: ${error.message}`);
         }
+
+        const numId = parseInt(id, 10);
+        await this.syncLocationCategories(numId, location.Categories ?? []);
+
+        const updated: Location = {
+            ...location,
+            ID: id,
+            Categories: dedupePreserveOrder((location.Categories ?? []).map((s) => s.trim()).filter(Boolean)),
+        };
+        this.locations[index] = updated;
+
+        return updated;
     }
 
     static async deleteLocation(id: string): Promise<void> {
         console.log('Deleting location:', id);
-        const index = this.locations.findIndex(loc => loc.ID === id);
-        if (index === -1) throw new Error('Location not found');
 
-        try {
-            const rowIndex = index + 2;
-            await this.clearRow(rowIndex);
-            this.locations = this.locations.filter(loc => loc.ID !== id);
-        } catch (error) {
-            console.error('Error deleting location:', error);
-            throw new Error('Failed to delete location from Google Sheets');
+        const { error } = await supabase.from('locations').delete().eq('id', parseInt(id, 10));
+
+        if (error) {
+            throw new Error(`Failed to delete location: ${error.message}`);
         }
+
+        this.locations = this.locations.filter((l) => l.ID !== id);
     }
 
     static async refreshData(): Promise<void> {
         await Promise.all([
-            this.fetchFromGoogleSheets(),
+            this.fetchLocations(),
             this.fetchCategories(),
-            this.fetchTags()
+            this.fetchTags(),
         ]);
     }
-} 
+}

@@ -10,24 +10,19 @@ import {
     Typography,
     Divider,
     InputAdornment,
-    IconButton,
-    Select,
-    MenuItem,
-    FormControl,
-    InputLabel,
-    Dialog,
-    SelectChangeEvent,
     Alert,
     AlertTitle,
-    Chip,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    SelectChangeEvent,
 } from '@mui/material';
 import {
     Language as WebsiteIcon,
     Phone as PhoneIcon,
     Email as EmailIcon,
     Place as PlaceIcon,
-    LocalOffer as TagIcon,
-    Add as AddIcon,
     Map as MapIcon,
 } from '@mui/icons-material';
 import { Location } from '../types/Location';
@@ -35,23 +30,78 @@ import { LocationService } from '../services/LocationService';
 import { Autocomplete } from '@mui/material';
 import { useLoadScript } from '@react-google-maps/api';
 import Logger from '../utils/logger';
+import { supabase } from '../lib/supabase';
+import { LinkifiedDescription } from '../lib/linkifyDescription';
+import {
+    clearLocationFormDraft,
+    loadLocationFormDraft,
+    saveLocationFormDraft,
+} from '../lib/locationFormDraft';
 
 interface LocationFormProps {
     initialData: Location | null;
     onSave: (location: Location) => void;
-    onCancel: () => void;
+    /** Omit on the public contribute page to hide the cancel/close control. */
+    onCancel?: () => void;
+    /** When set, draft is restored from `sessionStorage` and saved on change (survives refresh; cleared when the tab closes or after a successful submit). */
+    sessionDraftKey?: string;
+    /** When set, category/tag lists are not read from LocationService (e.g. public JSON form). */
+    categoryOptions?: string[];
+    tagOptions?: string[];
+    formTitle?: string;
+    submitLabel?: string;
+    cancelLabel?: string;
+    /** Hide Supabase image upload; image URL field remains. */
+    disableImageUpload?: boolean;
+    /** Shown under the image URL field (e.g. public JSON form). */
+    imageUrlHelperText?: string;
+    /** Softer section labels, spacing, and container styling for the public contribute flow. */
+    publicFormEnhancements?: boolean;
 }
 
 const libraries = ['places'];
 
-export default function LocationForm({ initialData, onSave, onCancel }: LocationFormProps) {
+/** Prefer explicit props when they have entries; `[]` is truthy for `??` and must not block the service fallback. */
+function resolveOptionList(prop: string[] | undefined, serviceList: string[]): string[] {
+    if (prop && prop.length > 0) return prop;
+    if (serviceList.length > 0) return serviceList;
+    return prop ?? serviceList;
+}
+
+function formatLocationAuditLine(loc: Location): string | null {
+    const parts: string[] = [];
+    if (loc.createdByUsername) parts.push(`Created by ${loc.createdByUsername}`);
+    if (loc.lastEditedByUsername) parts.push(`Last edited by ${loc.lastEditedByUsername}`);
+    if (loc.recordUpdatedAt) {
+        parts.push(`Updated ${new Date(loc.recordUpdatedAt).toLocaleString()}`);
+    }
+    return parts.length ? parts.join(' · ') : null;
+}
+
+export default function LocationForm({
+    initialData,
+    onSave,
+    onCancel,
+    sessionDraftKey,
+    categoryOptions,
+    tagOptions,
+    formTitle,
+    submitLabel,
+    cancelLabel,
+    disableImageUpload,
+    imageUrlHelperText,
+    publicFormEnhancements,
+}: LocationFormProps) {
+    /** Slightly rounder inputs on the public contribute form */
+    const fieldRadius = publicFormEnhancements ? 3.5 : 2;
+
     const { isLoaded, loadError } = useLoadScript({
         googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
         libraries: libraries as any,
     });
 
-    const [formData, setFormData] = React.useState<Partial<Location>>(
-        initialData || {
+    const emptyFormData: Partial<Location> = React.useMemo(
+        () => ({
             Name: '',
             Latitude: 0,
             Longitude: 0,
@@ -62,36 +112,56 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
             Address: '',
             Phone: '',
             Email: '',
-            Category: '',
+            Categories: [],
             'Contact Person': '',
             'Last Checked': new Date().toISOString().split('T')[0],
             'Additional Info': '',
-        }
+        }),
+        []
     );
 
+    const sessionDraft = React.useMemo(() => {
+        if (initialData != null || !sessionDraftKey) return null;
+        return loadLocationFormDraft(sessionDraftKey);
+    }, [initialData, sessionDraftKey]);
+
+    const [formData, setFormData] = React.useState<Partial<Location>>(() => {
+        if (initialData) {
+            return { ...initialData, Categories: initialData.Categories ?? [] };
+        }
+        if (sessionDraft?.formData) {
+            return {
+                ...emptyFormData,
+                ...sessionDraft.formData,
+                Categories: sessionDraft.formData.Categories ?? [],
+            };
+        }
+        return emptyFormData;
+    });
+
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-    const [categories, setCategories] = useState<string[]>([]);
-    const [isAddingCategory, setIsAddingCategory] = useState(false);
-    const [newCategory, setNewCategory] = useState('');
-    const [addressInput, setAddressInput] = useState('');
+    const [categories, setCategories] = useState<string[]>(() =>
+        resolveOptionList(categoryOptions, LocationService.getCategories())
+    );
+    const [addressInput, setAddressInput] = useState(() => sessionDraft?.addressInput ?? '');
     const [addressOptions, setAddressOptions] = useState<google.maps.places.AutocompletePrediction[]>([]);
-    const [addressVerified, setAddressVerified] = useState(false);
+    const [addressVerified, setAddressVerified] = useState(() => sessionDraft?.addressVerified ?? false);
     const [apiError, setApiError] = useState<string | null>(null);
-    const [availableTags, setAvailableTags] = useState<string[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedTags, setSelectedTags] = useState<string[]>([]);
-    const [isAddingTag, setIsAddingTag] = useState(false);
-    const [newTag, setNewTag] = useState('');
+    const [availableTags, setAvailableTags] = useState<string[]>(() =>
+        resolveOptionList(tagOptions, LocationService.getTags())
+    );
+    const [selectedTags, setSelectedTags] = useState<string[]>(() => sessionDraft?.selectedTags ?? []);
+    const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
-    // Load categories when component mounts
+    // Load categories on mount and when opening a different location (list may have changed)
     useEffect(() => {
-        setCategories(LocationService.getCategories());
-    }, []);
+        setCategories(resolveOptionList(categoryOptions, LocationService.getCategories()));
+    }, [initialData, categoryOptions]);
 
     useEffect(() => {
-        // Load available tags from the Tags worksheet
-        setAvailableTags(LocationService.getTags());
-    }, []);
+        setAvailableTags(resolveOptionList(tagOptions, LocationService.getTags()));
+    }, [tagOptions]);
 
     useEffect(() => {
         if (loadError) {
@@ -104,22 +174,47 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
     useEffect(() => {
         if (initialData?.Tags) {
             setSelectedTags(initialData.Tags.split(',').map(tag => tag.trim()).filter(Boolean));
-        } else {
+        } else if (!sessionDraftKey) {
             setSelectedTags([]);
         }
-    }, [initialData]);
+    }, [initialData, sessionDraftKey]);
+
+    useEffect(() => {
+        if (initialData) {
+            setFormData({
+                ...initialData,
+                Categories: initialData.Categories ?? [],
+            });
+            setAddressInput(initialData.Address || '');
+            setAddressVerified(!!initialData.Address);
+        } else if (!sessionDraftKey) {
+            setFormData(emptyFormData);
+            setAddressInput('');
+            setAddressVerified(false);
+        }
+    }, [initialData, emptyFormData, sessionDraftKey]);
+
+    /** Persist public contribute draft (sessionStorage: survives refresh, cleared when tab closes). */
+    const saveDraftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => {
+        if (!sessionDraftKey || initialData != null) return;
+        if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+        saveDraftTimeoutRef.current = setTimeout(() => {
+            saveDraftTimeoutRef.current = null;
+            saveLocationFormDraft(sessionDraftKey, {
+                formData,
+                addressInput,
+                addressVerified,
+                selectedTags,
+            });
+        }, 400);
+        return () => {
+            if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+        };
+    }, [sessionDraftKey, initialData, formData, addressInput, addressVerified, selectedTags]);
 
     const handleTextChange = (field: keyof Location) => (
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-    ) => {
-        setFormData({
-            ...formData,
-            [field]: event.target.value,
-        });
-    };
-
-    const handleSelectChange = (field: keyof Location) => (
-        event: SelectChangeEvent
     ) => {
         setFormData({
             ...formData,
@@ -176,6 +271,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
             
             if (result.results && result.results.length > 0) {
                 const location = result.results[0].geometry.location;
+                setAddressInput(prediction.description);
                 setFormData({
                     ...formData,
                     Address: prediction.description,
@@ -188,20 +284,6 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
             Logger.error('Error geocoding selected address', error);
             setApiError('Failed to get location details for the selected address.');
         }
-    };
-
-    const handleTagsChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const newTags = event.target.value.split(',').map(tag => tag.trim());
-        
-        // Validate that all tags exist in the Tags worksheet
-        const invalidTags = newTags.filter(tag => tag && !availableTags.includes(tag));
-        if (invalidTags.length > 0) {
-            setError(`Invalid tags: ${invalidTags.join(', ')}. Please use only existing tags.`);
-            return;
-        }
-        
-        setError(null);
-        handleTextChange('Tags')(event);
     };
 
     const validateForm = (): boolean => {
@@ -220,8 +302,15 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
         if (!formData['Contact Person']?.trim()) {
             errors['Contact Person'] = 'Contact Person is required';
         }
-        if (!formData.Category?.trim()) {
-            errors.Category = 'Category is required';
+        if (!formData.Categories?.length) {
+            errors.Categories = 'At least one category is required';
+        }
+        if (!formData['Additional Info']?.trim()) {
+            errors['Additional Info'] = 'Description is required';
+        }
+        const shortDesc = formData.Description ?? '';
+        if (shortDesc.length > 100) {
+            errors.Description = 'Short Description must be 100 characters or less';
         }
 
         // Phone or Email validation
@@ -249,27 +338,15 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
         if (validateForm()) {
             const updatedData = {
                 ...formData,
+                Categories: [...(formData.Categories ?? [])],
                 'Last Checked': new Date().toISOString().split('T')[0],
             };
 
-            // If there's a new category, add it to the service
-            if (formData.Category && !categories.includes(formData.Category)) {
-                await LocationService.addCategory(formData.Category);
-                setCategories(LocationService.getCategories());
-            }
-
             onSave(updatedData as Location);
+            if (sessionDraftKey) {
+                clearLocationFormDraft(sessionDraftKey);
+            }
         }
-    };
-
-    const handleAddCategory = async () => {
-        if (newCategory && !categories.includes(newCategory)) {
-            await LocationService.addCategory(newCategory);
-            setCategories(LocationService.getCategories());
-            setFormData({ ...formData, Category: newCategory });
-            setNewCategory('');
-        }
-        setIsAddingCategory(false);
     };
 
     const verifyLocation = () => {
@@ -281,33 +358,112 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
         }
     };
 
-    const handleAddTag = async () => {
-        if (newTag && !availableTags.includes(newTag)) {
-            await LocationService.addTag(newTag);
-            setAvailableTags(LocationService.getTags());
-            const updatedTags = [...selectedTags, newTag];
-            setSelectedTags(updatedTags);
-            setFormData(prev => ({ ...prev, Tags: updatedTags.join(', ') }));
-            setNewTag('');
+    const handleImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setImageUploadError(null);
+        setIsUploadingImage(true);
+
+        try {
+            const fileExt = file.name.split('.').pop();
+            const filePath = `locations/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('location-images')
+                .upload(filePath, file, {
+                    cacheControl: '3600',
+                    upsert: false,
+                });
+
+            if (uploadError) {
+                throw uploadError;
+            }
+
+            const { data } = supabase.storage.from('location-images').getPublicUrl(filePath);
+            if (!data?.publicUrl) {
+                throw new Error('Could not get public URL for image.');
+            }
+
+            setFormData(prev => ({ ...prev, Image: data.publicUrl }));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to upload image.';
+            setImageUploadError(message);
+        } finally {
+            setIsUploadingImage(false);
+            // allow re-upload of same file name
+            if (event.target) {
+                event.target.value = '';
+            }
         }
-        setIsAddingTag(false);
     };
 
+    const auditSubtitle = initialData?.ID ? formatLocationAuditLine(initialData) : null;
+
+    const sectionHeadingSx = publicFormEnhancements
+        ? {
+              fontWeight: 700,
+              fontSize: 15,
+              letterSpacing: '-0.02em',
+              color: 'rgba(15,23,42,0.88)',
+              mb: 2,
+              pl: 1.25,
+              borderLeft: '3px solid',
+              borderColor: 'primary.main',
+          }
+        : {
+              fontWeight: 600,
+              fontSize: 14,
+              mb: 1.5,
+          };
+
     return (
-        <Box component="form" onSubmit={handleSubmit}>
-            <DialogTitle>
-                <Typography variant="h6" component="div">
-                    {initialData ? 'Edit Location' : 'Add New Location'}
+        <Box component="form" onSubmit={handleSubmit} noValidate>
+            <DialogTitle sx={publicFormEnhancements ? { px: 0, pt: 0, pb: 2.5 } : undefined}>
+                <Typography
+                    variant="h6"
+                    component="div"
+                    sx={
+                        publicFormEnhancements
+                            ? { fontWeight: 800, letterSpacing: '-0.02em', fontSize: '1.2rem' }
+                            : undefined
+                    }
+                >
+                    {formTitle ?? (initialData ? 'Edit Location' : 'Add New Location')}
                 </Typography>
-            </DialogTitle>
-            <DialogContent>
-                <Box sx={{ p: 1 }}>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 2 }}>
-                        Basic Information
+                {auditSubtitle && (
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        component="div"
+                        sx={{ mt: 0.75, lineHeight: 1.4 }}
+                    >
+                        {auditSubtitle}
                     </Typography>
-                    <Grid container spacing={2}>
+                )}
+            </DialogTitle>
+            <DialogContent sx={publicFormEnhancements ? { pt: 2.5, px: { xs: 1, sm: 2 } } : undefined}>
+                <Box
+                    sx={{
+                        p: publicFormEnhancements ? 2 : 1,
+                        borderRadius: publicFormEnhancements ? 3 : 0,
+                        bgcolor: publicFormEnhancements ? 'rgba(255,255,255,0.55)' : 'transparent',
+                        border: 'none',
+                    }}
+                >
+                    <Typography
+                        variant="subtitle1"
+                        sx={{
+                            ...sectionHeadingSx,
+                            ...(publicFormEnhancements ? { mt: 0 } : { mt: 1 }),
+                        }}
+                    >
+                        1. Basic information
+                    </Typography>
+                    <Grid container spacing={publicFormEnhancements ? 2.5 : 2}>
                         <Grid item xs={12}>
                             <TextField
+                                size="small"
                                 required
                                 fullWidth
                                 label="Name"
@@ -315,42 +471,12 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 onChange={handleTextChange('Name')}
                                 error={!!formErrors.Name}
                                 helperText={formErrors.Name}
+                                sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
                             />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <FormControl fullWidth required error={!!formErrors.Category}>
-                                <InputLabel>Category</InputLabel>
-                                <Select
-                                    value={formData.Category}
-                                    onChange={handleSelectChange('Category')}
-                                    label="Category"
-                                >
-                                    {categories.map((category) => (
-                                        <MenuItem key={category} value={category}>
-                                            {category}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                                {formErrors.Category && (
-                                    <Typography variant="caption" color="error" sx={{ mt: 1, ml: 2 }}>
-                                        {formErrors.Category}
-                                    </Typography>
-                                )}
-                            </FormControl>
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <Button
-                                startIcon={<AddIcon />}
-                                onClick={() => setIsAddingCategory(true)}
-                                variant="outlined"
-                                fullWidth
-                                sx={{ height: '56px' }}
-                            >
-                                Add New Category
-                            </Button>
                         </Grid>
                         <Grid item xs={12}>
                             <TextField
+                                size="small"
                                 required
                                 fullWidth
                                 label="Website"
@@ -358,106 +484,138 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 onChange={handleTextChange('Website')}
                                 error={!!formErrors.Website}
                                 helperText={formErrors.Website}
-                                placeholder="https://"
+                                placeholder="https://example.org"
                                 InputProps={{
                                     startAdornment: (
-                                        <InputAdornment position="start">
-                                            <WebsiteIcon />
+                                        <InputAdornment
+                                            position="start"
+                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                        >
+                                            <WebsiteIcon fontSize="small" />
                                         </InputAdornment>
                                     ),
                                 }}
+                                sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
                             />
                         </Grid>
                         <Grid item xs={12}>
                             <TextField
+                                size="small"
                                 fullWidth
-                                label="Description"
+                                label="Short Description"
                                 value={formData.Description}
                                 onChange={handleTextChange('Description')}
                                 multiline
-                                rows={3}
+                                rows={2}
+                                inputProps={{ maxLength: 100 }}
+                                error={!!formErrors.Description}
+                                helperText={
+                                    formErrors.Description ||
+                                    `${(formData.Description ?? '').length}/100`
+                                }
+                                placeholder="Optional teaser (max 100 characters)"
+                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
                         </Grid>
                         <Grid item xs={12}>
                             <TextField
+                                size="small"
                                 fullWidth
-                                label="Image URL"
-                                value={formData.Image}
-                                onChange={handleTextChange('Image')}
-                                placeholder="https://"
+                                multiline
+                                rows={5}
+                                required
+                                label="Description"
+                                value={formData['Additional Info']}
+                                onChange={handleTextChange('Additional Info')}
+                                error={!!formErrors['Additional Info']}
+                                helperText={
+                                    formErrors['Additional Info'] ||
+                                    'Paste https:// links or use [link text](https://…). Preview below shows how links appear.'
+                                }
+                                placeholder="Full description of the location"
+                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
-                        </Grid>
-                        <Grid item xs={12}>
-                            <Box sx={{ display: 'flex', gap: 2 }}>
-                                <FormControl fullWidth>
-                                    <InputLabel>Add Tag</InputLabel>
-                                    <Select
-                                        value=""
-                                        onChange={(event) => {
-                                            const newTag = event.target.value;
-                                            if (newTag && !selectedTags.includes(newTag)) {
-                                                const updatedTags = [...selectedTags, newTag];
-                                                setSelectedTags(updatedTags);
-                                                setFormData(prev => ({ ...prev, Tags: updatedTags.join(', ') }));
-                                            }
-                                        }}
-                                        label="Add Tag"
-                                        startAdornment={
-                                            <InputAdornment position="start">
-                                                <TagIcon />
-                                            </InputAdornment>
-                                        }
-                                    >
-                                        {availableTags.map((tag) => (
-                                            <MenuItem key={tag} value={tag}>
-                                                {tag}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                <Button
-                                    startIcon={<AddIcon />}
-                                    onClick={() => setIsAddingTag(true)}
-                                    variant="outlined"
-                                    sx={{ minWidth: '180px', height: '56px' }}
+                            <Box
+                                sx={{
+                                    mt: 1.5,
+                                    p: 1.5,
+                                    borderRadius: fieldRadius,
+                                    bgcolor: 'grey.50',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    minHeight: 48,
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}
                                 >
-                                    Add New Tag
-                                </Button>
+                                    Preview
+                                </Typography>
+                                {formData['Additional Info']?.trim() ? (
+                                    <LinkifiedDescription text={formData['Additional Info'] ?? ''} />
+                                ) : (
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+                                        How the description will look with links.
+                                    </Typography>
+                                )}
                             </Box>
                         </Grid>
-                        {selectedTags.length > 0 && (
-                            <Grid item xs={12}>
-                                <Box sx={{ 
-                                    display: 'flex', 
-                                    flexWrap: 'wrap', 
-                                    gap: 1, 
-                                    mt: 1,
-                                    p: 2,
-                                    bgcolor: 'background.paper',
-                                    borderRadius: 1,
-                                    border: '1px solid',
-                                    borderColor: 'divider'
-                                }}>
-                                    {selectedTags.map((tag, index) => (
-                                        <Chip
-                                            key={tag}
-                                            label={tag}
-                                            onDelete={() => {
-                                                const newTags = selectedTags.filter((_, i) => i !== index);
-                                                setSelectedTags(newTags);
-                                                setFormData(prev => ({ ...prev, Tags: newTags.join(', ') }));
-                                            }}
-                                            color="primary"
-                                            size="small"
+                        <Grid item xs={12}>
+                            <Grid container spacing={1.5} alignItems="center">
+                                <Grid item xs={12} sm={disableImageUpload ? 12 : 8}>
+                                    <TextField
+                                        size="small"
+                                        fullWidth
+                                        label="Image URL"
+                                        value={formData.Image}
+                                        onChange={handleTextChange('Image')}
+                                        placeholder="https://example.org/photo.jpg"
+                                        helperText={imageUrlHelperText}
+                                        slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
+                                    />
+                                </Grid>
+                                {!disableImageUpload && (
+                                <Grid item xs={12} sm={4}>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        component="label"
+                                        fullWidth
+                                        disabled={isUploadingImage}
+                                        sx={{ height: 40, borderRadius: fieldRadius, textTransform: 'none', fontSize: '0.75rem' }}
+                                    >
+                                        {isUploadingImage ? 'Uploading…' : 'Upload image'}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            hidden
+                                            onChange={handleImageFileChange}
                                         />
-                                    ))}
-                                </Box>
+                                    </Button>
+                                </Grid>
+                                )}
+                                {imageUploadError && (
+                                    <Grid item xs={12}>
+                                        <Typography variant="caption" color="error">
+                                            {imageUploadError}
+                                        </Typography>
+                                    </Grid>
+                                )}
                             </Grid>
-                        )}
+                        </Grid>
                     </Grid>
 
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>
-                        Location Details
+                    <Typography
+                        variant="subtitle1"
+                        sx={{
+                            ...sectionHeadingSx,
+                            ...(publicFormEnhancements ? { mt: 4 } : { mt: 3 }),
+                        }}
+                    >
+                        2. Contact & address
                     </Typography>
                     <Grid container spacing={0}>
                         {apiError && (
@@ -496,7 +654,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 getOptionLabel={(option) => 
                                     typeof option === 'string' ? option : option.description
                                 }
-                                value={formData.Address}
+                                value={null}
                                 inputValue={addressInput}
                                 onInputChange={(_, value) => {
                                     handleAddressChange(value);
@@ -505,9 +663,11 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 onChange={(_, value) => {
                                     if (value === null) {
                                         setFormData({ ...formData, Address: '' });
+                                        setAddressInput('');
                                         setAddressVerified(false);
                                     } else if (typeof value === 'string') {
                                         setFormData({ ...formData, Address: value });
+                                        setAddressInput(value);
                                         setAddressVerified(false);
                                     } else {
                                         handleAddressSelect(value);
@@ -515,6 +675,7 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 }}
                                 renderInput={(params) => (
                                     <TextField
+                                        size="small"
                                         {...params}
                                         label="Address"
                                         fullWidth
@@ -524,11 +685,15 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                         InputProps={{
                                             ...params.InputProps,
                                             startAdornment: (
-                                                <InputAdornment position="start">
-                                                    <PlaceIcon />
+                                                <InputAdornment
+                                                    position="start"
+                                                    sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                                >
+                                                    <PlaceIcon fontSize="small" />
                                                 </InputAdornment>
                                             ),
                                         }}
+                                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
                                     />
                                 )}
                             />
@@ -561,11 +726,13 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                         </Typography>
                                     </Box>
                                     <Button
+                                        size="small"
                                         variant="contained"
-                                        startIcon={<MapIcon />}
+                                        startIcon={<MapIcon fontSize="small" />}
                                         onClick={verifyLocation}
                                         sx={{ 
-                                            minWidth: '200px',
+                                            minWidth: 180,
+                                            height: 40,
                                             bgcolor: 'primary.light',
                                             '&:hover': {
                                                 bgcolor: 'primary.dark',
@@ -579,12 +746,10 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                         )}
                     </Grid>
 
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>
-                        Contact Information
-                    </Typography>
-                    <Grid container spacing={2}>
+                    <Grid container spacing={publicFormEnhancements ? 2.5 : 2} sx={{ mt: 1 }}>
                         <Grid item xs={12} sm={6}>
                             <TextField
+                                size="small"
                                 fullWidth
                                 label="Phone"
                                 value={formData.Phone}
@@ -593,15 +758,20 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 helperText={formErrors.Phone}
                                 InputProps={{
                                     startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PhoneIcon />
+                                        <InputAdornment
+                                            position="start"
+                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                        >
+                                            <PhoneIcon fontSize="small" />
                                         </InputAdornment>
                                     ),
                                 }}
+                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
                         </Grid>
                         <Grid item xs={12} sm={6}>
                             <TextField
+                                size="small"
                                 fullWidth
                                 label="Email"
                                 type="email"
@@ -611,15 +781,20 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 helperText={formErrors.Email}
                                 InputProps={{
                                     startAdornment: (
-                                        <InputAdornment position="start">
-                                            <EmailIcon />
+                                        <InputAdornment
+                                            position="start"
+                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                        >
+                                            <EmailIcon fontSize="small" />
                                         </InputAdornment>
                                     ),
                                 }}
+                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
                         </Grid>
                         <Grid item xs={12}>
                             <TextField
+                                size="small"
                                 required
                                 fullWidth
                                 label="Contact Person"
@@ -627,78 +802,130 @@ export default function LocationForm({ initialData, onSave, onCancel }: Location
                                 onChange={handleTextChange('Contact Person')}
                                 error={!!formErrors['Contact Person']}
                                 helperText={formErrors['Contact Person']}
+                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
                         </Grid>
                     </Grid>
 
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 500, mt: 3 }}>
-                        Additional Information
+                    <Typography
+                        variant="subtitle1"
+                        sx={{
+                            ...sectionHeadingSx,
+                            ...(publicFormEnhancements ? { mt: 4 } : { mt: 3 }),
+                        }}
+                    >
+                        3. Categories & tags
                     </Typography>
-                    <Grid container spacing={2}>
+                    <Grid container spacing={publicFormEnhancements ? 2.5 : 2}>
                         <Grid item xs={12}>
-                            <TextField
+                            <Autocomplete
+                                multiple
+                                size="small"
+                                options={categories}
+                                value={formData.Categories ?? []}
+                                onChange={(_, values) => {
+                                    const prev = formData.Categories ?? [];
+                                    const prevMain = prev[0];
+                                    const next = values;
+                                    if (next.length === 0) {
+                                        setFormData({ ...formData, Categories: [] });
+                                        return;
+                                    }
+                                    if (prevMain && next.includes(prevMain)) {
+                                        setFormData({
+                                            ...formData,
+                                            Categories: [prevMain, ...next.filter((c) => c !== prevMain)],
+                                        });
+                                    } else {
+                                        setFormData({ ...formData, Categories: next });
+                                    }
+                                }}
+                                isOptionEqualToValue={(a, b) => a === b}
+                                disableCloseOnSelect
+                                limitTags={4}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Categories"
+                                        placeholder="Choose one or more categories…"
+                                        error={!!formErrors.Categories}
+                                        helperText={formErrors.Categories}
+                                        InputLabelProps={{
+                                            ...params.InputLabelProps,
+                                            required: true,
+                                        }}
+                                        sx={{
+                                            '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, minHeight: 40 },
+                                        }}
+                                    />
+                                )}
+                            />
+                        </Grid>
+                        <Grid item xs={12}>
+                            <FormControl
                                 fullWidth
-                                multiline
-                                rows={3}
-                                label="Additional Info"
-                                value={formData['Additional Info']}
-                                onChange={handleTextChange('Additional Info')}
+                                size="small"
+                                disabled={!(formData.Categories?.length)}
+                                sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
+                            >
+                                <InputLabel id="primary-category-label">Primary category</InputLabel>
+                                <Select
+                                    labelId="primary-category-label"
+                                    value={formData.Categories?.[0] ?? ''}
+                                    label="Primary category"
+                                    onChange={(e: SelectChangeEvent<string>) => {
+                                        const main = e.target.value;
+                                        const rest = (formData.Categories ?? []).filter((c) => c !== main);
+                                        setFormData({ ...formData, Categories: [main, ...rest] });
+                                    }}
+                                >
+                                    {(formData.Categories ?? []).map((c) => (
+                                        <MenuItem key={c} value={c}>
+                                            {c}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Autocomplete
+                                multiple
+                                size="small"
+                                options={availableTags}
+                                value={selectedTags}
+                                disableCloseOnSelect
+                                limitTags={2}
+                                onChange={(_, values) => {
+                                    setSelectedTags(values);
+                                    setFormData((prev) => ({ ...prev, Tags: values.join(', ') }));
+                                }}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Tags"
+                                        placeholder="Search tags…"
+                                        sx={{
+                                            '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, minHeight: 40 },
+                                        }}
+                                    />
+                                )}
                             />
                         </Grid>
                     </Grid>
                 </Box>
             </DialogContent>
-            <Divider />
-            <DialogActions sx={{ p: 2, gap: 1 }}>
-                <Button onClick={onCancel} variant="outlined">
-                    Cancel
-                </Button>
-                <Button type="submit" variant="contained">
-                    {initialData ? 'Save Changes' : 'Create Location'}
+            {!publicFormEnhancements && <Divider />}
+            <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'flex-end' }}>
+                {onCancel && (
+                    <Button onClick={onCancel} variant="outlined" size="small" sx={{ borderRadius: 999 }}>
+                        {cancelLabel ?? 'Cancel'}
+                    </Button>
+                )}
+                <Button type="submit" variant="contained" size="small" sx={{ borderRadius: 999 }}>
+                    {submitLabel ?? (initialData ? 'Save Changes' : 'Create Location')}
                 </Button>
             </DialogActions>
 
-            {/* Dialog for adding new category */}
-            <Dialog open={isAddingCategory} onClose={() => setIsAddingCategory(false)}>
-                <DialogTitle>Add New Category</DialogTitle>
-                <DialogContent>
-                    <TextField
-                        autoFocus
-                        margin="dense"
-                        label="Category Name"
-                        fullWidth
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setIsAddingCategory(false)}>Cancel</Button>
-                    <Button onClick={handleAddCategory} variant="contained">
-                        Add
-                    </Button>
-                </DialogActions>
-            </Dialog>
-
-            {/* Dialog for adding new tag */}
-            <Dialog open={isAddingTag} onClose={() => setIsAddingTag(false)}>
-                <DialogTitle>Add New Tag</DialogTitle>
-                <DialogContent>
-                    <TextField
-                        autoFocus
-                        margin="dense"
-                        label="Tag Name"
-                        fullWidth
-                        value={newTag}
-                        onChange={(e) => setNewTag(e.target.value)}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setIsAddingTag(false)}>Cancel</Button>
-                    <Button onClick={handleAddTag} variant="contained">
-                        Add
-                    </Button>
-                </DialogActions>
-            </Dialog>
         </Box>
     );
 } 
