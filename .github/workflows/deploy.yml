@@ -20,7 +20,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'npm'
       
       - name: Install dependencies
@@ -32,7 +32,7 @@ jobs:
           npm install --no-package-lock
           # CI still sometimes misses the platform-specific native binding.
           # Install it explicitly for the GitHub Actions ubuntu runner.
-          npm install --no-save @tailwindcss/oxide-linux-x64-gnu @tailwindcss/oxide-linux-x64-musl
+          npm install --no-save @tailwindcss/oxide-linux-x64-gnu
       
       # Vite inlines env at build time. Add matching names under repo → Settings → Secrets → Actions.
       # Optional secrets may be omitted; the app falls back to defaults for map URLs when unset.
