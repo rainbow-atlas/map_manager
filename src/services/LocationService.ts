@@ -61,6 +61,11 @@ const DEFAULT_TAGS = [
 
 export const PUBLIC_FORM_DEFAULT_TAGS: string[] = [...DEFAULT_TAGS];
 
+export interface CategoryDefinition {
+    name: string;
+    color: string;
+}
+
 interface LocationRow {
     id: number;
     name: string;
@@ -73,6 +78,9 @@ interface LocationRow {
     address: string;
     phone: string;
     email: string;
+    instagram: string;
+    facebook: string;
+    additional_links: string[] | null;
     category: string;
     contact_person: string;
     last_checked: string;
@@ -148,6 +156,9 @@ function rowToLocation(row: LocationRowFetched): Location {
         Address: row.address ?? '',
         Phone: row.phone ?? '',
         Email: row.email ?? '',
+        Instagram: row.instagram ?? '',
+        Facebook: row.facebook ?? '',
+        'Additional Links': row.additional_links ?? [],
         Categories: categoriesFromRow(row),
         'Contact Person': row.contact_person ?? '',
         'Last Checked': row.last_checked ?? '',
@@ -172,6 +183,9 @@ function locationToRow(location: Location | LocationFormData): Partial<LocationR
         address: loc.Address ?? '',
         phone: loc.Phone ?? '',
         email: loc.Email ?? '',
+        instagram: loc.Instagram ?? '',
+        facebook: loc.Facebook ?? '',
+        additional_links: (loc['Additional Links'] ?? []).map((s) => s.trim()).filter(Boolean),
         category: legacyCategoryCsv(names),
         contact_person: loc['Contact Person'] ?? '',
         last_checked: loc['Last Checked'] ?? '',
@@ -182,6 +196,7 @@ function locationToRow(location: Location | LocationFormData): Partial<LocationR
 export class LocationService {
     private static locations: Location[] = [];
     private static categories: string[] = [];
+    private static categoryDefinitions: CategoryDefinition[] = [];
     private static tags: string[] = [];
 
     static async initialize() {
@@ -367,33 +382,49 @@ export class LocationService {
             console.log('Fetching categories from Supabase...');
             const { data, error } = await supabase
                 .from('categories')
-                .select('name')
+                .select('name, color')
                 .order('name', { ascending: true });
 
             if (error) {
                 throw new Error(`Failed to fetch categories: ${error.message}`);
             }
 
-            const names = (data ?? []).map((r: { name: string }) => r.name?.trim()).filter(Boolean);
+            const defs = (data ?? [])
+                .map((r: { name: string; color?: string | null }) => ({
+                    name: r.name?.trim(),
+                    color: this.normalizeCategoryColor(r.color),
+                }))
+                .filter((r): r is CategoryDefinition => Boolean(r.name));
 
-            if (names.length === 0) {
+            if (defs.length === 0) {
                 console.log('No categories found, seeding defaults');
-                for (const cat of DEFAULT_CATEGORIES) {
-                    const { error: insertErr } = await supabase.from('categories').insert({ name: cat });
+                for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+                    const cat = DEFAULT_CATEGORIES[i];
+                    const { error: insertErr } = await supabase
+                        .from('categories')
+                        .insert({ name: cat, color: this.defaultCategoryColor(i) });
                     if (insertErr && insertErr.code !== '23505') {
                         console.error('Error seeding category:', insertErr);
                     }
                 }
-                this.categories = [...DEFAULT_CATEGORIES].sort();
+                this.categoryDefinitions = DEFAULT_CATEGORIES
+                    .map((name, i) => ({ name, color: this.defaultCategoryColor(i) }))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                this.categories = this.categoryDefinitions.map((c) => c.name);
                 for (const cat of this.categories) {
                     await this.logChange('category', 'ADD', cat);
                 }
             } else {
-                this.categories = names.sort();
+                this.categoryDefinitions = defs.sort((a, b) => a.name.localeCompare(b.name));
+                this.categories = this.categoryDefinitions.map((c) => c.name);
             }
         } catch (error) {
             console.error('Error fetching categories:', error);
             this.categories = [...DEFAULT_CATEGORIES];
+            this.categoryDefinitions = DEFAULT_CATEGORIES.map((name, i) => ({
+                name,
+                color: this.defaultCategoryColor(i),
+            }));
         }
     }
 
@@ -444,6 +475,10 @@ export class LocationService {
         return this.categories;
     }
 
+    static getCategoryDefinitions(): CategoryDefinition[] {
+        return [...this.categoryDefinitions];
+    }
+
     static getTags(): string[] {
         return this.tags;
     }
@@ -463,14 +498,16 @@ export class LocationService {
         ).length;
     }
 
-    static async addCategory(category: string): Promise<void> {
+    static async addCategory(category: string, color?: string): Promise<void> {
         console.log('Adding category:', category);
         if (this.categories.includes(category)) return;
 
-        const { error } = await supabase.from('categories').insert({ name: category });
+        const normalizedColor = this.normalizeCategoryColor(color);
+        const { error } = await supabase.from('categories').insert({ name: category, color: normalizedColor });
         if (error) {
             if (error.code === '23505') {
                 this.categories = [...new Set([...this.categories, category])].sort();
+                await this.fetchCategories();
                 return;
             }
             throw new Error(`Failed to add category: ${error.message}`);
@@ -478,18 +515,35 @@ export class LocationService {
 
         this.categories.push(category);
         this.categories.sort();
+        this.categoryDefinitions = [...this.categoryDefinitions, { name: category, color: normalizedColor }].sort((a, b) =>
+            a.name.localeCompare(b.name)
+        );
         await this.logChange('category', 'ADD', category);
     }
 
-    static async renameCategory(oldCategory: string, newCategory: string): Promise<void> {
+    static async renameCategory(oldCategory: string, newCategory: string, color?: string): Promise<void> {
         console.log('Renaming category:', oldCategory, 'to', newCategory);
+
+        const updates: { name?: string; color?: string } = {};
+        if (oldCategory !== newCategory) {
+            updates.name = newCategory;
+        }
+        if (color) {
+            updates.color = this.normalizeCategoryColor(color);
+        }
+        if (Object.keys(updates).length === 0) {
+            return;
+        }
 
         const { error: updateCatError } = await supabase
             .from('categories')
-            .update({ name: newCategory })
+            .update(updates)
             .eq('name', oldCategory);
 
-        if (updateCatError && updateCatError.code !== '23505') {
+        if (updateCatError) {
+            if (updateCatError.code === '23505' && oldCategory !== newCategory) {
+                throw new Error('Category already exists');
+            }
             throw new Error(`Failed to rename category: ${updateCatError.message}`);
         }
 
@@ -504,6 +558,32 @@ export class LocationService {
 
         await this.logChange('category', 'RENAME', oldCategory, newCategory);
         await this.refreshData();
+    }
+
+    private static normalizeCategoryColor(color?: string | null): string {
+        const fallback = '#9B8ACF';
+        if (!color) return fallback;
+        const normalized = color.trim().toUpperCase();
+        if (/^#[0-9A-F]{6}$/.test(normalized)) return normalized;
+        return fallback;
+    }
+
+    private static defaultCategoryColor(index: number): string {
+        const palette = [
+            '#EF4444',
+            '#F97316',
+            '#EAB308',
+            '#84CC16',
+            '#22C55E',
+            '#14B8A6',
+            '#06B6D4',
+            '#3B82F6',
+            '#6366F1',
+            '#8B5CF6',
+            '#D946EF',
+            '#EC4899',
+        ];
+        return palette[index % palette.length];
     }
 
     static async deleteCategory(category: string): Promise<void> {

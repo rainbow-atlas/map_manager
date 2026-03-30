@@ -14,6 +14,7 @@ import {
 import IframeEmbedBuilder from './IframeEmbedBuilder';
 import LocationForm from './LocationForm';
 import { LocationService } from '../services/LocationService';
+import { AppSettingsService } from '../services/AppSettingsService';
 import type { Location } from '../types/Location';
 import { parseContributedLocationJson } from '../lib/parseContributedLocationJson';
 
@@ -31,7 +32,7 @@ const btnSecondaryClass =
 const btnPrimaryClass =
     'inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-lg bg-[#9B8ACF] text-white hover:bg-[#8a79c0] shadow-sm transition-colors disabled:opacity-45 disabled:pointer-events-none';
 
-type ScriptsTab = 'main' | 'import-forms';
+type ScriptsTab = 'main' | 'import-forms' | 'impressum';
 
 function isLikelyJsonFile(file: File): boolean {
     const n = file.name.toLowerCase();
@@ -64,6 +65,25 @@ export default function ScriptsPage() {
     const [saveError, setSaveError] = useState<string | null>(null);
     const [saveBusy, setSaveBusy] = useState(false);
     const saveLockRef = useRef(false);
+    const impressumEditorRef = useRef<HTMLDivElement>(null);
+    const [impressumValue, setImpressumValue] = useState('');
+    const [impressumSavedValue, setImpressumSavedValue] = useState('');
+    const [impressumLoadBusy, setImpressumLoadBusy] = useState(false);
+    const [impressumSaveBusy, setImpressumSaveBusy] = useState(false);
+    const [impressumError, setImpressumError] = useState<string | null>(null);
+    const [impressumSaveHint, setImpressumSaveHint] = useState<string | null>(null);
+    const impressumHasLocalEditsRef = useRef(false);
+
+    const hasImpressumChanges = impressumValue !== impressumSavedValue;
+
+    const readEditorHtml = useCallback((): string => {
+        const html = impressumEditorRef.current?.innerHTML ?? '';
+        const normalized = html.trim();
+        if (normalized === '<br>' || normalized === '<div><br></div>' || normalized === '<p><br></p>') {
+            return '';
+        }
+        return normalized;
+    }, []);
 
     const copyContributeLink = useCallback(async () => {
         try {
@@ -202,6 +222,72 @@ export default function ScriptsPage() {
         [navigate]
     );
 
+    const loadImpressum = useCallback(async (force = false) => {
+        setImpressumError(null);
+        setImpressumLoadBusy(true);
+        try {
+            const value = await AppSettingsService.getImpressum();
+            if (!force && impressumHasLocalEditsRef.current) {
+                return;
+            }
+            if (impressumEditorRef.current) {
+                impressumEditorRef.current.innerHTML = value || '';
+            }
+            setImpressumValue(value);
+            setImpressumSavedValue(value);
+            impressumHasLocalEditsRef.current = false;
+        } catch (e) {
+            setImpressumError(e instanceof Error ? e.message : 'Failed to load impressum.');
+        } finally {
+            setImpressumLoadBusy(false);
+        }
+    }, []);
+
+    const saveImpressum = useCallback(async () => {
+        setImpressumError(null);
+        setImpressumSaveHint(null);
+        setImpressumSaveBusy(true);
+        try {
+            const html = readEditorHtml();
+            await AppSettingsService.saveImpressum(html);
+            setImpressumValue(html);
+            setImpressumSavedValue(html);
+            impressumHasLocalEditsRef.current = false;
+            setImpressumSaveHint('Saved.');
+            setTimeout(() => setImpressumSaveHint(null), 2200);
+        } catch (e) {
+            setImpressumError(e instanceof Error ? e.message : 'Failed to save impressum.');
+        } finally {
+            setImpressumSaveBusy(false);
+        }
+    }, [readEditorHtml]);
+
+    const runEditorCommand = useCallback((command: string, value?: string) => {
+        const editor = impressumEditorRef.current;
+        if (!editor) return;
+        editor.focus();
+        document.execCommand(command, false, value);
+        impressumHasLocalEditsRef.current = true;
+        setImpressumValue(readEditorHtml());
+    }, [readEditorHtml]);
+
+    const insertEditorLink = useCallback(() => {
+        const href = window.prompt('Link URL', 'https://');
+        if (!href) return;
+        runEditorCommand('createLink', href);
+    }, [runEditorCommand]);
+
+    const onEditorInput = useCallback(() => {
+        impressumHasLocalEditsRef.current = true;
+        setImpressumValue(readEditorHtml());
+    }, [readEditorHtml]);
+
+    React.useEffect(() => {
+        if (tab !== 'impressum') return;
+        if (impressumSavedValue || impressumValue || impressumLoadBusy) return;
+        void loadImpressum();
+    }, [tab, loadImpressum, impressumSavedValue, impressumValue, impressumLoadBusy]);
+
     return (
         <div className="flex flex-col h-full gap-3 min-h-0">
             <div className={`${cardBase} p-3 sm:p-4 shrink-0`}>
@@ -236,7 +322,7 @@ export default function ScriptsPage() {
                                     : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
-                            General
+                            iframe
                         </button>
                         <button
                             type="button"
@@ -251,7 +337,22 @@ export default function ScriptsPage() {
                                     : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
-                            Import from forms
+                            import from forms
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={tab === 'impressum'}
+                            id="scripts-tab-impressum"
+                            aria-controls="scripts-panel-impressum"
+                            onClick={() => setTab('impressum')}
+                            className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                                tab === 'impressum'
+                                    ? 'bg-white text-gray-900 shadow-sm border border-black/8'
+                                    : 'text-gray-600 hover:text-gray-800'
+                            }`}
+                        >
+                            impressum
                         </button>
                     </div>
                 </div>
@@ -485,6 +586,88 @@ export default function ScriptsPage() {
                                 </div>
                             </>
                         )}
+                    </div>
+                )}
+
+                {tab === 'impressum' && (
+                    <div
+                        role="tabpanel"
+                        id="scripts-panel-impressum"
+                        aria-labelledby="scripts-tab-impressum"
+                        className={`${cardBase} flex-1 min-h-0 p-4 sm:p-5 flex flex-col gap-3 overflow-hidden`}
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <p className="text-sm font-medium text-gray-800">Impressum</p>
+                                <p className="text-xs text-gray-500">Write your legal notice with inline formatting.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    className={btnSecondaryClass}
+                                    onClick={() => void loadImpressum(true)}
+                                    disabled={impressumLoadBusy || impressumSaveBusy}
+                                >
+                                    Reload
+                                </button>
+                                <button
+                                    type="button"
+                                    className={btnPrimaryClass}
+                                    onClick={() => void saveImpressum()}
+                                    disabled={!hasImpressumChanges || impressumSaveBusy || impressumLoadBusy}
+                                >
+                                    {impressumSaveBusy ? 'Saving…' : 'Save impressum'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {impressumError && (
+                            <p className="text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2" role="alert">
+                                {impressumError}
+                            </p>
+                        )}
+
+                        {impressumSaveHint && (
+                            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2" role="status">
+                                {impressumSaveHint}
+                            </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('bold')}>
+                                Bold
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('italic')}>
+                                Italic
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('formatBlock', 'H1')}>
+                                H1
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('formatBlock', 'H2')}>
+                                H2
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('insertUnorderedList')}>
+                                Bullet list
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('insertOrderedList')}>
+                                Numbered list
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={insertEditorLink}>
+                                Link
+                            </button>
+                            <button type="button" className={btnSecondaryClass} onClick={() => runEditorCommand('removeFormat')}>
+                                Clear format
+                            </button>
+                        </div>
+
+                        <div
+                            ref={impressumEditorRef}
+                            contentEditable
+                            suppressContentEditableWarning
+                            onInput={onEditorInput}
+                            className="w-full flex-1 min-h-[20rem] overflow-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] focus:outline-none focus:ring-2 focus:ring-[#9B8ACF]/40"
+                            data-placeholder="Write your impressum..."
+                        />
                     </div>
                 )}
             </div>

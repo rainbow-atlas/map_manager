@@ -17,13 +17,13 @@ import {
     Select,
     MenuItem,
     SelectChangeEvent,
+    IconButton,
+    Popover,
+    Collapse,
 } from '@mui/material';
 import {
-    Language as WebsiteIcon,
-    Phone as PhoneIcon,
-    Email as EmailIcon,
-    Place as PlaceIcon,
-    Map as MapIcon,
+    Instagram as InstagramIcon,
+    FacebookOutlined as FacebookIcon,
 } from '@mui/icons-material';
 import { Location } from '../types/Location';
 import { LocationService } from '../services/LocationService';
@@ -32,6 +32,14 @@ import { useLoadScript } from '@react-google-maps/api';
 import Logger from '../utils/logger';
 import { supabase } from '../lib/supabase';
 import { LinkifiedDescription } from '../lib/linkifyDescription';
+import {
+    GlobeAltIcon as WebsiteFieldIcon,
+    PhoneIcon as PhoneFieldIcon,
+    EnvelopeIcon as EmailFieldIcon,
+    MapPinIcon as PlaceFieldIcon,
+    MapIcon as MapFieldIcon,
+    InformationCircleIcon as InfoFieldIcon,
+} from '@heroicons/react/24/outline';
 import {
     clearLocationFormDraft,
     loadLocationFormDraft,
@@ -60,6 +68,19 @@ interface LocationFormProps {
 }
 
 const libraries = ['places'];
+const LONG_DESCRIPTION_MAX_LENGTH = 500;
+const PHONE_COUNTRY_OPTIONS = [
+    { code: '+49', label: 'DE (+49)' },
+    { code: '+43', label: 'AT (+43)' },
+    { code: '+41', label: 'CH (+41)' },
+    { code: '+31', label: 'NL (+31)' },
+    { code: '+32', label: 'BE (+32)' },
+    { code: '+33', label: 'FR (+33)' },
+    { code: '+39', label: 'IT (+39)' },
+    { code: '+34', label: 'ES (+34)' },
+    { code: '+44', label: 'UK (+44)' },
+    { code: '+1', label: 'US/CA (+1)' },
+];
 
 /** Prefer explicit props when they have entries; `[]` is truthy for `??` and must not block the service fallback. */
 function resolveOptionList(prop: string[] | undefined, serviceList: string[]): string[] {
@@ -78,6 +99,32 @@ function formatLocationAuditLine(loc: Location): string | null {
     return parts.length ? parts.join(' · ') : null;
 }
 
+function hasDescriptionLinks(text: string): boolean {
+    if (!text.trim()) return false;
+    const plainUrlRegex = /https?:\/\/[^\s)]+/i;
+    const markdownUrlRegex = /\[[^\]]+\]\((https?:\/\/[^)\s]+)\)/i;
+    return plainUrlRegex.test(text) || markdownUrlRegex.test(text);
+}
+
+function splitPhone(raw: string | undefined): { countryCode: string; number: string } {
+    const value = (raw ?? '').trim();
+    if (!value) return { countryCode: '+43', number: '' };
+    const m = value.match(/^(\+\d{1,4})\s*(.*)$/);
+    if (!m) return { countryCode: '+43', number: value };
+    return { countryCode: m[1], number: m[2] ?? '' };
+}
+
+function isHttpUrl(value: string): boolean {
+    return /^https?:\/\/.+/i.test(value);
+}
+
+function splitAdditionalLinks(value: string): string[] {
+    return value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
 export default function LocationForm({
     initialData,
     onSave,
@@ -92,8 +139,9 @@ export default function LocationForm({
     imageUrlHelperText,
     publicFormEnhancements,
 }: LocationFormProps) {
-    /** Slightly rounder inputs on the public contribute form */
-    const fieldRadius = publicFormEnhancements ? 3.5 : 2;
+    /** Rounder corners to soften dense form UI */
+    const fieldRadius = publicFormEnhancements ? 4.5 : 3;
+    const iconAdornmentSx = { color: 'text.secondary' };
 
     const { isLoaded, loadError } = useLoadScript({
         googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
@@ -112,6 +160,9 @@ export default function LocationForm({
             Address: '',
             Phone: '',
             Email: '',
+            Instagram: '',
+            Facebook: '',
+            'Additional Links': [],
             Categories: [],
             'Contact Person': '',
             'Last Checked': new Date().toISOString().split('T')[0],
@@ -127,12 +178,21 @@ export default function LocationForm({
 
     const [formData, setFormData] = React.useState<Partial<Location>>(() => {
         if (initialData) {
-            return { ...initialData, Categories: initialData.Categories ?? [] };
+            return {
+                ...initialData,
+                Instagram: initialData.Instagram ?? '',
+                Facebook: initialData.Facebook ?? '',
+                'Additional Links': initialData['Additional Links'] ?? [],
+                Categories: initialData.Categories ?? [],
+            };
         }
         if (sessionDraft?.formData) {
             return {
                 ...emptyFormData,
                 ...sessionDraft.formData,
+                Instagram: sessionDraft.formData.Instagram ?? '',
+                Facebook: sessionDraft.formData.Facebook ?? '',
+                'Additional Links': sessionDraft.formData['Additional Links'] ?? [],
                 Categories: sessionDraft.formData.Categories ?? [],
             };
         }
@@ -153,6 +213,10 @@ export default function LocationForm({
     const [selectedTags, setSelectedTags] = useState<string[]>(() => sessionDraft?.selectedTags ?? []);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
     const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+    const [showImageUrlInput, setShowImageUrlInput] = useState(false);
+    const [descriptionInfoAnchorEl, setDescriptionInfoAnchorEl] = useState<HTMLElement | null>(null);
+    const [phoneCountryCode, setPhoneCountryCode] = useState('+43');
+    const [phoneNumber, setPhoneNumber] = useState('');
 
     // Load categories on mount and when opening a different location (list may have changed)
     useEffect(() => {
@@ -183,6 +247,9 @@ export default function LocationForm({
         if (initialData) {
             setFormData({
                 ...initialData,
+                Instagram: initialData.Instagram ?? '',
+                Facebook: initialData.Facebook ?? '',
+                'Additional Links': initialData['Additional Links'] ?? [],
                 Categories: initialData.Categories ?? [],
             });
             setAddressInput(initialData.Address || '');
@@ -193,6 +260,12 @@ export default function LocationForm({
             setAddressVerified(false);
         }
     }, [initialData, emptyFormData, sessionDraftKey]);
+
+    useEffect(() => {
+        const parsed = splitPhone(formData.Phone);
+        setPhoneCountryCode(parsed.countryCode);
+        setPhoneNumber(parsed.number);
+    }, [initialData, sessionDraftKey]);
 
     /** Persist public contribute draft (sessionStorage: survives refresh, cleared when tab closes). */
     const saveDraftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -312,6 +385,10 @@ export default function LocationForm({
         if (shortDesc.length > 100) {
             errors.Description = 'Short Description must be 100 characters or less';
         }
+        const longDesc = formData['Additional Info'] ?? '';
+        if (longDesc.length > LONG_DESCRIPTION_MAX_LENGTH) {
+            errors['Additional Info'] = `Description must be ${LONG_DESCRIPTION_MAX_LENGTH} characters or less`;
+        }
 
         // Phone or Email validation
         if (!formData.Phone?.trim() && !formData.Email?.trim()) {
@@ -320,8 +397,19 @@ export default function LocationForm({
         }
 
         // Website format validation
-        if (formData.Website && !formData.Website.match(/^https?:\/\/.+/)) {
+        if (formData.Website && !isHttpUrl(formData.Website)) {
             errors.Website = 'Website must start with http:// or https://';
+        }
+
+        if (formData.Instagram && !isHttpUrl(formData.Instagram)) {
+            errors.Instagram = 'Instagram must start with http:// or https://';
+        }
+        if (formData.Facebook && !isHttpUrl(formData.Facebook)) {
+            errors.Facebook = 'Facebook must start with http:// or https://';
+        }
+        const invalidAdditionalLink = (formData['Additional Links'] ?? []).find((link) => !isHttpUrl(link));
+        if (invalidAdditionalLink) {
+            errors['Additional Links'] = 'All additional links must start with http:// or https://';
         }
 
         // Email format validation if provided
@@ -398,7 +486,17 @@ export default function LocationForm({
         }
     };
 
+    const updatePhone = (countryCode: string, number: string) => {
+        const cleanNumber = number.trim();
+        setFormData((prev) => ({
+            ...prev,
+            Phone: cleanNumber ? `${countryCode} ${cleanNumber}` : '',
+        }));
+    };
+
     const auditSubtitle = initialData?.ID ? formatLocationAuditLine(initialData) : null;
+    const isDescriptionInfoOpen = Boolean(descriptionInfoAnchorEl);
+    const shouldShowDescriptionPreview = hasDescriptionLinks(formData['Additional Info'] ?? '');
 
     const sectionHeadingSx = publicFormEnhancements
         ? {
@@ -418,7 +516,16 @@ export default function LocationForm({
           };
 
     return (
-        <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Box
+            component="form"
+            onSubmit={handleSubmit}
+            noValidate
+            sx={{
+                '& .MuiOutlinedInput-root': {
+                    borderRadius: fieldRadius,
+                },
+            }}
+        >
             <DialogTitle sx={publicFormEnhancements ? { px: 0, pt: 0, pb: 2.5 } : undefined}>
                 <Typography
                     variant="h6"
@@ -489,9 +596,9 @@ export default function LocationForm({
                                     startAdornment: (
                                         <InputAdornment
                                             position="start"
-                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                            sx={iconAdornmentSx}
                                         >
-                                            <WebsiteIcon fontSize="small" />
+                                            <WebsiteFieldIcon className="w-4 h-4" />
                                         </InputAdornment>
                                     ),
                                 }}
@@ -527,76 +634,159 @@ export default function LocationForm({
                                 label="Description"
                                 value={formData['Additional Info']}
                                 onChange={handleTextChange('Additional Info')}
+                                inputProps={{ maxLength: LONG_DESCRIPTION_MAX_LENGTH }}
                                 error={!!formErrors['Additional Info']}
                                 helperText={
                                     formErrors['Additional Info'] ||
-                                    'Paste https:// links or use [link text](https://…). Preview below shows how links appear.'
+                                    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                        <Box component="span">
+                                            {(formData['Additional Info'] ?? '').length}/{LONG_DESCRIPTION_MAX_LENGTH}
+                                        </Box>
+                                        <IconButton
+                                            size="small"
+                                            aria-label="Description formatting help"
+                                            onClick={(event) => setDescriptionInfoAnchorEl(event.currentTarget)}
+                                            sx={{
+                                                p: 0,
+                                                width: '0.9rem',
+                                                height: '0.9rem',
+                                                fontSize: '0.75rem',
+                                                color: 'text.secondary',
+                                                verticalAlign: 'middle',
+                                            }}
+                                        >
+                                            <InfoFieldIcon className="w-3.5 h-3.5" />
+                                        </IconButton>
+                                    </Box>
                                 }
                                 placeholder="Full description of the location"
                                 slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
                             />
+                            <Popover
+                                open={isDescriptionInfoOpen}
+                                anchorEl={descriptionInfoAnchorEl}
+                                onClose={() => setDescriptionInfoAnchorEl(null)}
+                                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+                                transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                            >
+                                <Box sx={{ p: 1.5, maxWidth: 340 }}>
+                                    <Typography variant="body2">
+                                        Paste https:// links or use [link text](https://...). Preview below
+                                        shows how links appear.
+                                    </Typography>
+                                </Box>
+                            </Popover>
+                            {shouldShowDescriptionPreview && (
+                                <Box
+                                    sx={{
+                                        mt: 1.5,
+                                        p: 1.5,
+                                        borderRadius: fieldRadius,
+                                        bgcolor: 'grey.50',
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        minHeight: 48,
+                                    }}
+                                >
+                                    <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}
+                                    >
+                                        Preview
+                                    </Typography>
+                                    <LinkifiedDescription text={formData['Additional Info'] ?? ''} />
+                                </Box>
+                            )}
+                        </Grid>
+                        <Grid item xs={12}>
                             <Box
                                 sx={{
-                                    mt: 1.5,
                                     p: 1.5,
                                     borderRadius: fieldRadius,
-                                    bgcolor: 'grey.50',
                                     border: '1px solid',
                                     borderColor: 'divider',
-                                    minHeight: 48,
+                                    bgcolor: 'rgba(148,163,184,0.06)',
                                 }}
                             >
                                 <Typography
                                     variant="caption"
                                     color="text.secondary"
-                                    sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}
+                                    sx={{ display: 'block', mb: 1, fontWeight: 700, letterSpacing: '0.01em' }}
                                 >
-                                    Preview
+                                    Logo
                                 </Typography>
-                                {formData['Additional Info']?.trim() ? (
-                                    <LinkifiedDescription text={formData['Additional Info'] ?? ''} />
-                                ) : (
-                                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
-                                        How the description will look with links.
-                                    </Typography>
-                                )}
-                            </Box>
-                        </Grid>
-                        <Grid item xs={12}>
-                            <Grid container spacing={1.5} alignItems="center">
-                                <Grid item xs={12} sm={disableImageUpload ? 12 : 8}>
-                                    <TextField
-                                        size="small"
-                                        fullWidth
-                                        label="Image URL"
-                                        value={formData.Image}
-                                        onChange={handleTextChange('Image')}
-                                        placeholder="https://example.org/photo.jpg"
-                                        helperText={imageUrlHelperText}
-                                        slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
-                                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
-                                    />
-                                </Grid>
+                                <Grid container spacing={1.25} alignItems="center">
                                 {!disableImageUpload && (
-                                <Grid item xs={12} sm={4}>
+                                    <Grid item xs={12}>
+                                        <Grid container spacing={1}>
+                                            <Grid item xs={12} sm={formData.Image?.trim() ? 8 : 12}>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    component="label"
+                                                    fullWidth
+                                                    disabled={isUploadingImage}
+                                                    sx={{ height: 40, borderRadius: fieldRadius, textTransform: 'none', fontSize: '0.8rem', fontWeight: 600 }}
+                                                >
+                                                    {isUploadingImage ? 'Uploading…' : 'Upload logo'}
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        hidden
+                                                        onChange={handleImageFileChange}
+                                                    />
+                                                </Button>
+                                            </Grid>
+                                            {formData.Image?.trim() && (
+                                                <Grid item xs={12} sm={4}>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        color="error"
+                                                        fullWidth
+                                                        onClick={() => setFormData((prev) => ({ ...prev, Image: '' }))}
+                                                        sx={{ height: 40, borderRadius: fieldRadius, textTransform: 'none', fontSize: '0.8rem', fontWeight: 600 }}
+                                                    >
+                                                        Remove logo
+                                                    </Button>
+                                                </Grid>
+                                            )}
+                                        </Grid>
+                                    </Grid>
+                                )}
+                                <Grid item xs={12}>
                                     <Button
                                         size="small"
-                                        variant="outlined"
-                                        component="label"
-                                        fullWidth
-                                        disabled={isUploadingImage}
-                                        sx={{ height: 40, borderRadius: fieldRadius, textTransform: 'none', fontSize: '0.75rem' }}
+                                        variant="text"
+                                        onClick={() => setShowImageUrlInput((prev) => !prev)}
+                                        sx={{
+                                            px: 0,
+                                            minWidth: 0,
+                                            textTransform: 'none',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600,
+                                        }}
                                     >
-                                        {isUploadingImage ? 'Uploading…' : 'Upload image'}
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            hidden
-                                            onChange={handleImageFileChange}
-                                        />
+                                        {showImageUrlInput ? 'Hide direct logo URL' : 'Use direct logo URL'}
                                     </Button>
+                                    <Collapse in={showImageUrlInput}>
+                                        <TextField
+                                            size="small"
+                                            fullWidth
+                                            label="Direct logo URL"
+                                            value={formData.Image}
+                                            onChange={handleTextChange('Image')}
+                                            placeholder="https://example.org/photo.jpg"
+                                            helperText={imageUrlHelperText}
+                                            slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                            sx={{
+                                                mt: 0.75,
+                                                '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 },
+                                            }}
+                                        />
+                                    </Collapse>
                                 </Grid>
-                                )}
                                 {imageUploadError && (
                                     <Grid item xs={12}>
                                         <Typography variant="caption" color="error">
@@ -604,7 +794,142 @@ export default function LocationForm({
                                         </Typography>
                                     </Grid>
                                 )}
+                                {formData.Image?.trim() && (
+                                    <Grid item xs={12}>
+                                        <Box
+                                            sx={{
+                                                mt: 0.5,
+                                                p: 1.25,
+                                                borderRadius: fieldRadius,
+                                                border: '1px solid',
+                                                borderColor: 'divider',
+                                                bgcolor: 'background.paper',
+                                            }}
+                                        >
+                                            <Typography
+                                                variant="caption"
+                                                color="text.secondary"
+                                                sx={{ display: 'block', mb: 1, fontWeight: 600 }}
+                                            >
+                                                Logo preview
+                                            </Typography>
+                                            <Box
+                                                component="img"
+                                                src={formData.Image}
+                                                alt={formData.Name?.trim() || 'Location preview'}
+                                                sx={{
+                                                    width: '100%',
+                                                    height: 180,
+                                                    objectFit: 'contain',
+                                                    objectPosition: 'center',
+                                                    borderRadius: fieldRadius,
+                                                    border: '1px solid',
+                                                    borderColor: 'divider',
+                                                    bgcolor: 'common.white',
+                                                }}
+                                            />
+                                        </Box>
+                                    </Grid>
+                                )}
                             </Grid>
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Box
+                                sx={{
+                                    p: 1.5,
+                                    borderRadius: fieldRadius,
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    bgcolor: 'rgba(148,163,184,0.06)',
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: 'block', mb: 1, fontWeight: 700, letterSpacing: '0.01em' }}
+                                >
+                                    Social & extra links
+                                </Typography>
+                                <Grid container spacing={publicFormEnhancements ? 2.5 : 2}>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            size="small"
+                                            fullWidth
+                                            label="Instagram"
+                                            value={formData.Instagram}
+                                            onChange={handleTextChange('Instagram')}
+                                            error={!!formErrors.Instagram}
+                                            helperText={formErrors.Instagram}
+                                            placeholder="https://instagram.com/..."
+                                            InputProps={{
+                                                startAdornment: (
+                                                    <InputAdornment
+                                                        position="start"
+                                                        sx={iconAdornmentSx}
+                                                    >
+                                                        <InstagramIcon fontSize="small" />
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                            slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            size="small"
+                                            fullWidth
+                                            label="Facebook"
+                                            value={formData.Facebook}
+                                            onChange={handleTextChange('Facebook')}
+                                            error={!!formErrors.Facebook}
+                                            helperText={formErrors.Facebook}
+                                            placeholder="https://facebook.com/..."
+                                            InputProps={{
+                                                startAdornment: (
+                                                    <InputAdornment
+                                                        position="start"
+                                                        sx={iconAdornmentSx}
+                                                    >
+                                                        <FacebookIcon fontSize="small" />
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                            slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12}>
+                                        <TextField
+                                            size="small"
+                                            fullWidth
+                                            multiline
+                                            rows={3}
+                                            label="Additional links"
+                                            value={(formData['Additional Links'] ?? []).join('\n')}
+                                            onChange={(event) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    'Additional Links': splitAdditionalLinks(event.target.value),
+                                                }));
+                                            }}
+                                            error={!!formErrors['Additional Links']}
+                                            helperText={formErrors['Additional Links'] || 'One URL per line'}
+                                            placeholder={'https://example.org/link-1\nhttps://example.org/link-2'}
+                                            InputProps={{
+                                                startAdornment: (
+                                                    <InputAdornment
+                                                        position="start"
+                                                        sx={{ ...iconAdornmentSx, alignSelf: 'flex-start', mt: 1 }}
+                                                    >
+                                                        <WebsiteFieldIcon className="w-4 h-4" />
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                            slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                        />
+                                    </Grid>
+                                </Grid>
+                            </Box>
                         </Grid>
                     </Grid>
 
@@ -687,9 +1012,9 @@ export default function LocationForm({
                                             startAdornment: (
                                                 <InputAdornment
                                                     position="start"
-                                                    sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                                    sx={iconAdornmentSx}
                                                 >
-                                                    <PlaceIcon fontSize="small" />
+                                                    <PlaceFieldIcon className="w-4 h-4" />
                                                 </InputAdornment>
                                             ),
                                         }}
@@ -728,7 +1053,7 @@ export default function LocationForm({
                                     <Button
                                         size="small"
                                         variant="contained"
-                                        startIcon={<MapIcon fontSize="small" />}
+                                        startIcon={<MapFieldIcon className="w-4 h-4" />}
                                         onClick={verifyLocation}
                                         sx={{ 
                                             minWidth: 180,
@@ -748,26 +1073,57 @@ export default function LocationForm({
 
                     <Grid container spacing={publicFormEnhancements ? 2.5 : 2} sx={{ mt: 1 }}>
                         <Grid item xs={12} sm={6}>
-                            <TextField
-                                size="small"
-                                fullWidth
-                                label="Phone"
-                                value={formData.Phone}
-                                onChange={handleTextChange('Phone')}
-                                error={!!formErrors.Phone}
-                                helperText={formErrors.Phone}
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment
-                                            position="start"
-                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                            <Grid container spacing={1}>
+                                <Grid item xs={5}>
+                                    <FormControl
+                                        fullWidth
+                                        size="small"
+                                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: fieldRadius, height: 40 } }}
+                                    >
+                                        <InputLabel id="phone-country-code-label">Code</InputLabel>
+                                        <Select
+                                            labelId="phone-country-code-label"
+                                            value={phoneCountryCode}
+                                            label="Code"
+                                            onChange={(e: SelectChangeEvent<string>) => {
+                                                const newCode = e.target.value;
+                                                setPhoneCountryCode(newCode);
+                                                updatePhone(newCode, phoneNumber);
+                                            }}
+                                            startAdornment={
+                                                <InputAdornment
+                                                    position="start"
+                                                    sx={{ ml: -0.25, mr: 0.25, ...iconAdornmentSx }}
+                                                >
+                                                    <PhoneFieldIcon className="w-4 h-4" />
+                                                </InputAdornment>
+                                            }
                                         >
-                                            <PhoneIcon fontSize="small" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                                slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
-                            />
+                                            {PHONE_COUNTRY_OPTIONS.map((option) => (
+                                                <MenuItem key={option.code} value={option.code}>
+                                                    {option.label}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid item xs={7}>
+                                    <TextField
+                                        size="small"
+                                        fullWidth
+                                        label="Phone number"
+                                        value={phoneNumber}
+                                        onChange={(event) => {
+                                            const number = event.target.value;
+                                            setPhoneNumber(number);
+                                            updatePhone(phoneCountryCode, number);
+                                        }}
+                                        error={!!formErrors.Phone}
+                                        helperText={formErrors.Phone || (phoneNumber.trim() ? `Saved as: ${phoneCountryCode} ${phoneNumber.trim()}` : '')}
+                                        slotProps={{ input: { sx: { borderRadius: fieldRadius } } }}
+                                    />
+                                </Grid>
+                            </Grid>
                         </Grid>
                         <Grid item xs={12} sm={6}>
                             <TextField
@@ -783,9 +1139,9 @@ export default function LocationForm({
                                     startAdornment: (
                                         <InputAdornment
                                             position="start"
-                                            sx={{ '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                            sx={iconAdornmentSx}
                                         >
-                                            <EmailIcon fontSize="small" />
+                                            <EmailFieldIcon className="w-4 h-4" />
                                         </InputAdornment>
                                     ),
                                 }}

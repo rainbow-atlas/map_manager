@@ -1,0 +1,4 @@
+ALTER TABLE public.locations
+  ADD COLUMN IF NOT EXISTS instagram TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS facebook TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS additional_links TEXT[] DEFAULT '{}'::TEXT[];

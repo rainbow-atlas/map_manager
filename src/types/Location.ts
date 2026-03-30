@@ -10,6 +10,9 @@ export interface Location {
     Address: string;
     Phone: string;
     Email: string;
+    Instagram: string;
+    Facebook: string;
+    'Additional Links': string[];
     /**
      * Category names (many-to-many via `location_categories` in Supabase).
      * Order matters: `Categories[0]` is the primary (main) category for display and exports.

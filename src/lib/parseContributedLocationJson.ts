@@ -78,6 +78,11 @@ export function parseContributedLocationJson(text: string): ParseContributedResu
         Address: asString(o.Address ?? o.address, ''),
         Phone: asString(o.Phone ?? o.phone, ''),
         Email: asString(o.Email ?? o.email, ''),
+        Instagram: asString(o.Instagram ?? o.instagram, ''),
+        Facebook: asString(o.Facebook ?? o.facebook, ''),
+        'Additional Links': asStringArray(
+            o['Additional Links'] ?? o.additionalLinks ?? o.additional_links
+        ),
         Categories: categories,
         'Contact Person': asString(o['Contact Person'] ?? o.contactPerson ?? o.contact_person, ''),
         'Last Checked': lastChecked || defaultDate,
