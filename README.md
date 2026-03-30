@@ -55,7 +55,7 @@ Add these secrets in GitHub → Settings → Secrets and variables → Actions (
 - `VITE_SUPABASE_URL` (required for deploy)
 - `VITE_SUPABASE_ANON_KEY` (required for deploy)
 - `VITE_GOOGLE_MAPS_API_KEY` (optional — address autocomplete)
-- `VITE_QUEER_MAP_EMBED_URL` (optional — public map URL for iframe builder + login link; app falls back to GitHub Pages if unset)
+- `VITE_QUEER_MAP_EMBED_URL` (optional — public map URL for iframe builder + login link; app falls back to `https://queermap.at/` if unset)
 
 ## Available Scripts
 
