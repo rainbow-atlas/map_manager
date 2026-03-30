@@ -8,6 +8,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function (l) {
+        var params = new URLSearchParams(l.search);
+        var redirectedPath = params.get('__gh_path');
+        if (redirectedPath) {
+          history.replaceState(null, '', redirectedPath);
+        }
+      })(window.location);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
