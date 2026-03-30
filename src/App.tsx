@@ -47,7 +47,7 @@ function App() {
 
     return (
         <ThemeProvider theme={muiTheme}>
-            <BrowserRouter basename="/map_manager">
+            <BrowserRouter>
                 <Routes>
                     <Route path="/contribute" element={<PublicContributePage />} />
                     <Route
