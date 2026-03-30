@@ -24,7 +24,12 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm install
+        # Tailwind v4 uses an OS/CPU-specific optional native binding ("oxide").
+        # npm's optional-deps handling can break when a lockfile created on a different
+        # platform is reused in CI. Force a fresh install without the lockfile.
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install --no-package-lock
       
       # Vite inlines env at build time. Add matching names under repo → Settings → Secrets → Actions.
       # Optional secrets may be omitted; the app falls back to defaults for map URLs when unset.
