@@ -94,13 +94,28 @@ The application supports two roles:
 
 ## Deployment
 
-The application is configured to deploy automatically to GitHub Pages when changes are pushed to the main branch. To set up deployment:
+The application deploys automatically to GitHub Pages when changes are pushed to `main`.
 
-1. Create a new repository on GitHub
-2. Push your code to the repository
-3. In your repository settings, enable GitHub Pages and select the GitHub Actions option
-4. Set up the required secrets in your repository settings (see "Managing GitHub Secrets" section)
-5. The application will be automatically deployed when you push to the main branch
+### Custom domain (`admin.queermap.at`)
+
+- `public/CNAME` is committed with `admin.queermap.at`, so each deploy keeps the custom domain attached.
+- `vite.config.ts` uses `base: '/'`, which is required for serving from a domain root (instead of `/map_manager/`).
+
+### GitHub Pages setup
+
+1. In repo settings, enable **Pages** and choose **GitHub Actions** as the source.
+2. Add the required Action secrets (see "Managing GitHub Secrets").
+3. Push to `main` to trigger deployment.
+
+### DNS setup (for `queermap.at`)
+
+Create this DNS record in the DNS zone where `queermap.at` is managed:
+
+- Type: `CNAME`
+- Name/Host: `admin`
+- Value/Target: `<your-github-username>.github.io`
+
+After DNS propagates, GitHub Pages will issue HTTPS for `admin.queermap.at`.
 
 ## Usage
 
